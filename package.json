@@ -1,0 +1,32 @@
+{
+  "name": "stock-profit-calculator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "单文件网页版股票持仓管理工具：加权平均成本、分批买卖与融券做空，含高低位看板（15日分位）、交易计划与止损提醒、月度收益复盘；数据只存浏览器本地。",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check",
+    "test": "node test/app.test.mjs",
+    "verify": "npm run check && npm test"
+  },
+  "keywords": [
+    "stock",
+    "portfolio-tracker",
+    "profit-calculator",
+    "single-file",
+    "offline-first",
+    "localstorage",
+    "a-share",
+    "股票收益计算器",
+    "持仓管理",
+    "加权平均",
+    "做T",
+    "融券做空",
+    "高低位分位"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}

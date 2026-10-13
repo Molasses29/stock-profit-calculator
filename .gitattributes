@@ -1,0 +1,11 @@
+# 禁止 Git 做任何换行符转换（等价于把全部文件当二进制处理）。
+#
+# 为什么必须这样：本项目的构建产物是按**字节**比对的 ——
+# `npm run check` 会把 src/ 三份源码内联后与 index.html 逐字符比较，
+# 而 src/styles.css、src/app.js 是原样拼进 index.html 的。
+# 若让 Git 把 LF 转成 CRLF（Windows 上 core.autocrlf=true 的默认行为），
+# 那么任何人 clone 下来后 `npm run check` 都会失败，而文件看起来「没问题」，
+# 排查成本很高。锁死换行符后 index.html 与 src/ 的字节关系在任何平台都一致。
+#
+# 附带好处：test/app.test.mjs 里也有内联的期望字符串，同样要求稳定换行符。
+* -text

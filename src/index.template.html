@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>股票收益计算器（分批建仓 / 分批卖出 / 卖空）</title>
+<style>
+{{STYLES}}</style>
+  <!-- build: {{BUILD_STAMP}} -->
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <h1>股票收益计算器</h1>
+    <p class="sub">支持分批建仓、分批卖出、以及融券卖空（做空）：每支股票可逐笔录入多笔价格与股数，自动按加权平均法算出浮动盈亏、已实现盈亏与总收益（均已扣除佣金与印花税）。</p>
+  </div>
+
+  <div class="body-row">
+  <div class="col-main">
+
+  <div class="cards">
+    <div class="card hero">
+      <div class="k">总收益（持仓 + 已存档，净）</div>
+      <div class="v flat" id="k-total">¥0.00</div>
+      <div class="x" id="k-total-sub">—</div>
+    </div>
+    <div class="card">
+      <div class="k">总浮动盈亏（净）</div>
+      <div class="v flat" id="k-float">¥0.00</div>
+      <div class="x" id="k-float-sub">多头 ¥0.00 · 空头 ¥0.00</div>
+    </div>
+    <div class="card">
+      <div class="k">已实现盈亏（净，持仓 + 已存档）</div>
+      <div class="v flat" id="k-real">¥0.00</div>
+      <div class="x" id="k-real-sub">持仓内 ¥0.00（已平仓 0 股）</div>
+    </div>
+    <div class="card">
+      <div class="k">累计交易费用（已发生）</div>
+      <div class="v" id="k-fee">¥0.00</div>
+      <div class="x" id="k-fee-sub">持仓 买入 ¥0.00 · 卖出 ¥0.00</div>
+    </div>
+
+    <div class="card side-l">
+      <div class="k">多头 · 持仓成本（含买入费用）</div>
+      <div class="v" id="k-lcost">—</div>
+      <div class="x" id="k-lcost-sub">暂无多头持仓</div>
+    </div>
+    <div class="card side-l">
+      <div class="k">多头 · 当前市值</div>
+      <div class="v" id="k-lvalue">—</div>
+      <div class="x" id="k-lvalue-sub">暂无多头持仓</div>
+    </div>
+    <div class="card side-s">
+      <div class="k">空头 · 开仓市值</div>
+      <div class="v" id="k-sopen">—</div>
+      <div class="x" id="k-sopen-sub">暂无空头持仓</div>
+    </div>
+    <div class="card side-s">
+      <div class="k">空头 · 当前现值（回买成本）</div>
+      <div class="v" id="k-svalue">—</div>
+      <div class="x" id="k-svalue-sub">暂无空头持仓</div>
+    </div>
+  </div>
+
+  <div class="feebar">
+    <div class="ft">费率设置</div>
+    <label class="fg">买入佣金 <input id="f-commBuy" type="number" step="0.001" min="0"><span class="u">%</span></label>
+    <label class="fg">卖出佣金 <input id="f-commSell" type="number" step="0.001" min="0"><span class="u">%</span></label>
+    <label class="fg">印花税（卖出） <input id="f-stamp" type="number" step="0.001" min="0"><span class="u">%</span></label>
+    <label class="fg">过户费（双向） <input id="f-transfer" type="number" step="0.001" min="0"><span class="u">%</span></label>
+    <label class="fg">最低佣金 <input id="f-minComm" type="number" step="0.01" min="0"><span class="u">元</span></label>
+    <span class="tip">万分之一 = 0.01% ｜ 最低佣金按「每一笔」成交计提，填 0 表示不设下限</span>
+  </div>
+
+  <div class="feebar alertbar">
+    <div class="ft">盈亏提醒</div>
+    <label class="fg"><input type="checkbox" id="al-on"> 启用</label>
+    <label class="fg">总浮盈达到 <input id="al-profit" type="number" step="100" min="0" placeholder="不限"><span class="u">元</span></label>
+    <label class="fg">总浮亏达到 <input id="al-loss" type="number" step="100" min="0" placeholder="不限"><span class="u">元</span></label>
+    <button class="btn sm" id="al-test">测试提醒</button>
+    <span class="tip" id="al-status">—</span>
+    <span class="plansep"></span>
+    <label class="fg"><input type="checkbox" id="al-plan"> 止损/目标提醒</label>
+    <span class="tip">持仓里填了止损价或目标价后，现价穿线时提醒一次（每支、每方向各一次）</span>
+  </div>
+
+  <div class="panel">
+    <div class="panel-top">
+      <div class="t">持仓明细 <span>点行展开批次；点名称前的「多 / 空」切换方向；行尾「✓」把已了结的交易存档</span></div>
+      <div class="tools">
+        <button class="btn primary" id="add-long">＋ 添加多头</button>
+        <button class="btn shortbtn" id="add-short">＋ 添加空头（卖空）</button>
+        <button class="btn" id="expand-all">全部展开</button>
+        <button class="btn" id="export">导出 CSV</button>
+        <button class="btn ghost" id="reset">清空持仓</button>
+      </div>
+    </div>
+    <div class="qbar">
+      <span class="qlabel">实时行情</span>
+      <button class="btn sm" id="refresh">⟳ 刷新现价</button>
+      <label><input type="checkbox" id="autoq"> 自动刷新</label>
+      <select id="qinterval">
+        <option value="10">每 10 秒</option>
+        <option value="30">每 30 秒</option>
+        <option value="60">每 60 秒</option>
+        <option value="300">每 5 分钟</option>
+      </select>
+      <span class="codesrc">代码栏填 A股 6 位（600519）或带前缀（hk00700 / usAAPL / bj430047）｜ 数据来源：腾讯行情免费接口，仅供参考</span>
+      <span class="qstatus" id="qstatus">未刷新</span>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="lft" style="width:200px">方向 / 代码 / 名称</th>
+            <th style="width:108px">持仓股数<span class="hint"><span class="nb">多头持仓</span> / <span class="nb">空头头寸</span></span></th>
+            <th style="width:126px"><span class="nb">含费成本价</span> / <span class="nb">开仓均价</span><span class="hint">加权平均</span></th>
+            <th style="width:118px">当前价<span class="hint">刷新后自动填入</span></th>
+            <th style="width:98px">浮动盈亏（净）<span class="hint">未了结部分</span></th>
+            <th style="width:114px">已实现盈亏（净）<span class="hint">已平仓部分</span></th>
+            <th style="width:128px">总盈亏（净）<span class="hint">浮动 + 已实现</span></th>
+            <th style="width:78px"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+        <tfoot>
+          <tr>
+            <td class="lft">合计</td>
+            <td id="t-hold">0</td>
+            <td id="t-costval" class="mutedc">—</td>
+            <td></td>
+            <td id="t-float" class="flat">¥0.00</td>
+            <td id="t-real" class="flat">¥0.00</td>
+            <td id="t-total" class="flat">¥0.00</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" id="watchPanel">
+    <div class="panel-top">
+      <div class="t">高低位看板 <span>分位 = 现价在近 15 日高低区间里的位置：100 = 顶着区间最高（高位），0 = 贴着最低（低位）；观察池只看不记账；持仓平仓存档后会以「已平仓」留在看板上，方便继续盯它回落再买回</span></div>
+      <div class="tools">
+        <input class="wcode" id="watch-code" placeholder="代码，如 600519">
+        <button class="btn" id="watch-add">＋ 加入观察池</button>
+        <button class="btn" id="watch-refresh">⟳ 刷新分位</button>
+        <span class="kctl">
+          <label><input type="checkbox" id="kalert-on"> 分位提醒</label>
+          低≤<input class="knum" id="kalert-low" title="分位低于该值时提醒（低位区，适合买入/换回）">
+          高≥<input class="knum" id="kalert-high" title="分位高于该值时提醒（高位区，适合卖出）">
+        </span>
+      </div>
+    </div>
+    <div class="scroll">
+      <table class="wtable">
+        <thead><tr>
+          <th class="lft" style="width:176px">股票 <span class="hint">持仓 / 观察池 / 已平仓</span></th>
+          <th style="width:100px">现价 <span class="hint">今日涨跌</span></th>
+          <th style="width:148px">15日分位 <span class="hint">0=低位 100=高位</span></th>
+          <th style="width:100px">15日最高 <span class="hint">距高点</span></th>
+          <th style="width:100px">15日最低 <span class="hint">距低点</span></th>
+          <th style="width:148px">均线位置 <span class="hint">现价相对 MA5/10/30</span></th>
+          <th style="width:88px">K线日期</th>
+          <th style="width:36px"></th>
+        </tr></thead>
+        <tbody id="watchBody"></tbody>
+      </table>
+    </div>
+    <div class="wnote" id="watchNote"></div>
+  </div>
+
+  <div class="panel" id="histPanel">
+    <div class="panel-top">
+      <div class="t">已完成交易记录 <span id="h-count-tip">还没有已了结的交易</span></div>
+      <div class="tools">
+        <button class="btn ghost" id="month-toggle" title="按月汇总已完成交易的收益">📊 月度收益</button>
+        <button class="btn" id="export-hist">导出记录 CSV</button>
+        <button class="btn ghost" id="clear-hist">清空记录</button>
+      </div>
+    </div>
+    <div class="bbar">
+      <span class="qlabel">数据备份</span>
+      <button class="btn sm" id="export-json">⤓ 导出备份 JSON</button>
+      <button class="btn sm" id="import-json">⤒ 导入 JSON</button>
+      <span class="codesrc">JSON 备份可完整还原持仓批次、已完成记录、费率与设置；CSV 只用于导出查看，不能导回</span>
+      <span class="bstatus" id="bstatus">尚未备份</span>
+    </div>
+
+    <div class="hist-sum">
+      <div class="hs hero">
+        <div class="hs-v flat" id="h-net">¥0.00</div>
+        <div class="hs-k">已存档的已实现总收益（净）</div>
+      </div>
+      <div class="hs">
+        <div class="hs-v flat" id="h-totalrate">—</div>
+        <div class="hs-k">加权总收益率</div>
+      </div>
+      <div class="hs">
+        <div class="hs-v" id="h-n">0</div>
+        <div class="hs-k" id="h-n-sub">盈利 0 · 亏损 0 · 持平 0</div>
+      </div>
+      <div class="hs">
+        <div class="hs-v" id="h-win">—</div>
+        <div class="hs-k">胜率（盈利 ÷ 有盈亏笔数）</div>
+      </div>
+      <div class="hs">
+        <div class="hs-v" id="h-fee">¥0.00</div>
+        <div class="hs-k">累计交易费用</div>
+      </div>
+    </div>
+
+    <div class="mbox" id="monthBox" hidden>
+      <table class="mtable">
+        <thead><tr>
+          <th style="width:92px">月份</th>
+          <th style="width:110px">笔数<span class="hint">盈 / 亏</span></th>
+          <th style="width:100px">费用</th>
+          <th class="lft">当月净收益分布<span class="hint">中间为 0 轴：右伸红=盈利，左伸绿=亏损，长度按当月最大值等比</span></th>
+          <th style="width:126px">当月净收益</th>
+          <th style="width:126px">累计（含当月）</th>
+        </tr></thead>
+        <tbody id="monthBody"></tbody>
+      </table>
+    </div>
+
+    <div class="scroll">
+      <table class="hist-table">
+        <thead>
+          <tr>
+            <th class="lft" style="width:168px">方向 / 股票名称</th>
+            <th style="width:128px">成交日期<span class="hint">可修改</span></th>
+            <th style="width:118px">买入均价 ¥</th>
+            <th style="width:118px">卖出均价 ¥</th>
+            <th style="width:92px">股数</th>
+            <th style="width:98px">买入费用</th>
+            <th style="width:98px">卖出费用</th>
+            <th style="width:102px">费用合计</th>
+            <th style="width:148px">已实现盈亏 ¥</th>
+            <th style="width:106px">收益率</th>
+            <th style="width:46px"></th>
+          </tr>
+        </thead>
+        <tbody id="hbody"></tbody>
+        <tfoot>
+          <tr>
+            <td class="lft">合计</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td id="h-t-qty">0</td>
+            <td id="h-t-buyfee">¥0.00</td>
+            <td id="h-t-sellfee">¥0.00</td>
+            <td id="h-t-fee">¥0.00</td>
+            <td id="h-t-net" class="flat">¥0.00</td>
+            <td id="h-t-rate" class="flat">—</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>顶部汇总卡的口径（重要）：</b>顶部四张卡都是<b>全账户口径 = 持仓表 + 已完成交易记录（已存档）</b>：
+    <ul>
+      <li><b>总收益</b> = 持仓浮动盈亏 ＋ 已实现盈亏（<b>持仓内已平仓 ＋ 已存档的交易</b>）</li>
+      <li><b>已实现盈亏</b> = 持仓表里已平仓部分的净盈亏 ＋ 已存档交易的净盈亏（卡片副标题会写明各自多少）</li>
+      <li><b>累计交易费用</b> = 持仓表买入/卖出费用 ＋ 已存档交易的费用</li>
+      <li><b>总浮动盈亏</b>只统计<b>未了结</b>的持仓——已存档的交易早已经了结，没有浮动盈亏</li>
+    </ul>
+    也就是说：<span class="warnc">把一笔交易存档后，它的已实现盈亏不会消失，仍然计入顶部「总收益」</span>，只是从持仓表移到了下方记录面板。下方「已完成交易记录」面板里的统计是<b>只针对已存档部分</b>的口径（所以它和顶部卡片的数字本来就不应该相等，两者的差额就是持仓表当前的部分）。
+    <br>
+    <b>盈亏提醒：</b>勾选「启用」，再填提醒线即可——<b>盯的是「总浮动盈亏」（持仓表口径，不含已存档）</b>：
+    <ul>
+      <li>「总浮盈达到 X 元」= 总浮动盈利 ≥ +X 时提醒（止盈提醒）；「总浮亏达到 X 元」= 总浮动亏损 ≤ −X 时提醒（止损提醒）</li>
+      <li>两条线都是填<b>正数幅度</b>，0 或留空表示该方向不提醒；<b>只填一边也行</b>（只要止盈提醒，或只要止损提醒）</li>
+      <li><b>什么时候检查</b>：每次点「⟳ 刷新现价」取到新价之后；打开页面时（若没开自动刷新）；手工改完表格里的「当前价 / 单价 / 股数」之后。开了自动刷新就跟着定时检查</li>
+      <li><b>不会反复弹</b>：越过提醒线只弹一次，之后即使还在线上也不再弹；要等浮动盈亏回到线内（留 1% 回差，避免在线上抖动）后重新越线才会再提醒</li>
+      <li>右侧状态文字实时显示「当前总浮动 / 提醒线 / 是否已越过」，另有<b>「测试提醒」</b>按钮可以先看看弹窗长什么样（不会改变提醒状态）</li>
+      <li>若还有持仓没填当前价，弹窗里会说明「浮动盈亏不完整」，避免把不完整的数字当成全部</li>
+    </ul>
+    <b>怎么做空（融券卖出）：</b>点「＋ 添加空头（卖空）」，或把已有行的方向标记从「多」切成「空」。做空时两张明细表角色对调：
+    <span class="tag short">空</span><b>卖出明细 = 开仓</b>（先融券卖出拿到钱），<span class="tag short">空</span><b>买入明细 = 平仓</b>（后买回还券）。
+    开仓在前、平仓在后，所以展开后卖出明细会排在左边。
+    <br>
+    <b>成本口径采用加权平均法</b>，多头与空头互为镜像：
+    <ul>
+      <li><span class="tag long">多</span>含费成本价 = （Σ 买入金额 + Σ 买入费用）÷ Σ 买入股数</li>
+      <li><span class="tag long">多</span>已实现盈亏 = （Σ 卖出金额 − Σ 卖出费用）− 平仓股数 × 含费成本价</li>
+      <li><span class="tag long">多</span>浮动盈亏 = 剩余股数 × 当前价 − 预估卖出费用 − 剩余股数 × 含费成本价</li>
+      <li><span class="tag short">空</span>含费开仓均价 = （Σ 卖出金额 − Σ 卖出费用）÷ Σ 卖出股数　<span style="color:#b3bcc9">（做空是"先收钱"，开仓价要减掉费用）</span></li>
+      <li><span class="tag short">空</span>已实现盈亏 = 平仓股数 × 含费开仓均价 − （Σ 买入金额 + Σ 买入费用）</li>
+      <li><span class="tag short">空</span>浮动盈亏 = 剩余空头 × 含费开仓均价 − （剩余空头 × 当前价 + 预估回买费用）　<span style="color:#b3bcc9">（股价跌 → 空头赚，方向是反的）</span></li>
+      <li>两边都满足「总盈亏 = 已实现 + 浮动」，两个口径互斥，不重不漏</li>
+    </ul>
+    <b>分层计价：</b>每笔成交单独计提费用，最低佣金逐笔生效（500 股与 800 股各扣一次下限，而不是合并后扣一次）。
+    <br>
+    <b>异常检测：</b>多头卖出多于买入、或空头平仓（买回）多于开仓（卖出），剩余股数会标成<span class="warnc">橙色</span>并给出提示，且禁止存档。
+    <br>
+    <b>存档：</b>点行尾「✓」会弹出存档窗口，里面是 <b>清盘明细</b>——<b>这是必填的关键一步</b>。自动刷新开着时「当前价」是市场实时价，未必等于你的真实成交价，所以存档时要单独录入你实际成交的价格；<b>而且可以分多笔、不同价格不同数量</b>（比如 300 股按 ¥12.10、500 股按 ¥12.35、200 股按 ¥11.90 分批清掉）。
+    <ul>
+      <li>每笔清盘都是<b>一笔独立成交</b>，各自计提佣金/印花税，所以最低佣金也是逐笔生效的</li>
+      <li>录入过程中下方会实时显示「还差 N 股 / 超出 N 股」，<b>只有把待清盘股数恰好分配完</b>「确认存档」才可点——不会多算也不会漏算</li>
+      <li>「按剩余数量填一笔」可以一键把剩余股数补到当前行，适合最后一笔；「＋ 再添一笔」继续分批</li>
+      <li>已逐笔录入过卖出（空头则是买回）明细的部分，仍按你录入的实际价格算；只有<b>待清盘</b>的那部分才用清盘明细补齐</li>
+      <li>清盘价<b>故意不预填实时价</b>，避免顺手把市场价当成成交价存进历史</li>
+      <li>如果这支股票已经全部卖出 / 买回，窗口会显示「待清盘：无」，不需要录入，确认即可</li>
+      <li>窗口里还能改<b>成交日期</b>，事后补录旧交易时用得上（默认今天）</li>
+      <li>存档回执会写明清盘情况：单笔显示成交价，多笔显示「N 笔均价」</li>
+    </ul>
+    <b>强制清盘（数量对不上时用）：</b>做 T、或者同一支股票多次进出之后，系统算出来的持仓数量可能和券商实际对不上
+    （最典型的：<b>卖了 100 手，跌下来之后用同样的钱买回了 101 手</b>——系统会显示"剩余 1 手"，而你的账户里是 101 手）。
+    这时用存档窗口里的 <b>「强制清盘」</b>模式，直接输入你<b>实际的成交价和数量</b>：
+    <ul>
+      <li><b>数量可以比记录的多、也可以比记录的少</b>，不做任何配平校验（这正是它的用途），窗口里会写明差了多少股</li>
+      <li><b>盈亏按「价差 × 数量」结算</b>（价差取大小，正负由方向决定），<b>分两段</b>：
+        <b>已了结的那部分</b>用记录里的真实成交均价算，<b>其余</b>用本次清盘价算；
+        两段数量之和 = 建仓数量。
+        <span class="tag long">多</span>（已卖出均价 − 建仓买入均价）× 已卖出数量 ＋（清盘卖出均价 − 建仓买入均价）× 未了结数量；
+        <span class="tag short">空</span>（开仓卖出均价 − 已买回均价）× 已买回数量 ＋（开仓卖出均价 − 清盘买回均价）× 未了结数量。
+        <b>不扣交易费用</b>，费用仍按当时费率逐笔计提、单独统计在顶部「累计交易费用」卡里。
+        ——分两段是为了不吞掉已了结部分的真实盈亏（它的成交价往往和清盘价不同），
+        窗口里会把两段分开列出，同时给出金额差作对照</li>
+      <li>确认后整支移入「已完成交易记录」，记录里会带一个<b>「强制清盘」</b>标记，导出的 CSV 里也有对应备注，
+        便于和逐笔清盘的记录区分（两者口径不同，不该混着看）</li>
+      <li>原来那些中间买卖记录<b>不再单独计盈亏</b>（都被这次结算覆盖），所以强制清盘后总收益的构成会重算一次</li>
+      <li>持仓数量对不上（出现 <span class="warnc">⚠ 卖出多于买入</span>）的时候点「✓」，会<b>直接以强制清盘模式打开</b>，
+        不再被拦住——这种情况逐笔清盘永远配不平</li>
+      <li>清盘价<b>同样不预填</b>实时价，数量也不预填（对不上的时候预填会把人锚定在错误的数字上）</li>
+    </ul>
+    <b>存档的其他说明：</b>多头必须<b>全部卖出</b>、空头必须<b>全部买回</b>才能整支存档（未了结的部分留在上表才能继续跟踪浮动盈亏；卖出多于买入会被判定为超卖，此时请用上面的「强制清盘」）。只想补录历史交易的话，加一支股票、填一笔开仓 + 一笔平仓（当前价留空）就行。存档时按当时的费率把金额锁死，之后再改费率不会篡改历史记录。
+    <br>
+    <b>收益率分母：</b>多头按「Σ 买入金额 + 买入费用」，空头按「Σ 卖出金额」（开仓名义金额）——融券的真实保证金比例因人而异、无法得知，所以不按保证金算。
+    <br>
+    <b>实时行情（自动跟踪现价）：</b>在「代码」栏填上代码，点「⟳ 刷新现价」，程序会直接把最新价写入「当前价」栏并重算全部盈亏；勾选「自动刷新」可按 10 秒 ~ 5 分钟定时取价（页面切到后台时会自动暂停，切回来立即补一次）。代码填写方式：
+    <ul>
+      <li>A股：直接填 6 位数字，如 <code>600519</code>、<code>000001</code>、<code>300750</code>、<code>688981</code>（自动判断沪深北）</li>
+      <li>ETF / 基金：同样 6 位，如 <code>510300</code>、<code>159915</code></li>
+      <li>港股：<code>hk00700</code> 或直接填 <code>700</code>；美股：<code>usAAPL</code></li>
+      <li>北交所：直接填 6 位即可（<code>920002</code>、<code>430047</code>、<code>833171</code>），也可写 <code>bj430047</code>。
+        <b>实时价、涨跌幅、盈亏都能正常算</b>；但历史 K 线（15 日分位）目前只有 <b>920 开头的新代码段</b>有可靠数据源，
+        43/83/87/88 开头的存量代码在看板里会显示「北交所老代码段暂无历史K线源」——宁可标不支持，也不用错数据算分位</li>
+      <li>「名称」栏留空时，刷新后会自动把股票简称填进去</li>
+    </ul>
+    <b>右侧「国际大宗商品」：</b>固定显示三个品种——<b>WTI 原油</b>（NYMEX，接口里的名字是"纽约原油"）、<b>布伦特原油</b>（ICE，即布油）、<b>伦敦金现</b>（XAU/USD，现货黄金）。它们与持仓共用同一次刷新：点「⟳ 刷新现价」会一起更新；也可以点该面板右上角的 ⟳ <b>只刷这三个品种</b>。鼠标悬停在某一行上能看到昨收、今开、最高、最低与行情时间。窗口不够宽时它会自动变成页面顶部的一条横排，不会挤占表格宽度。
+    <br>
+    <b>取数方式（刷新失败时看这段）：</b>正常走 <code>fetch</code>；若它被跨域策略或页面环境限制拦住，程序会<b>自动改用 <code>&lt;script&gt;</code> 标签再取一次</b>——这个接口返回的本来就是 JS 赋值语句（<code>v_sh600519="…"</code>），而<b>脚本加载不受 CORS 限制</b>，所以在 <code>file://</code> 直接打开、或嵌在受限页面里也能取到；此时状态栏会写「<b>已改用备用取数方式</b>」。<b>两条通道都失败</b>才说明请求根本没发出去，那时请检查网络 / 代理 / 安全软件（它们可能拦了 <code>qt.gtimg.cn</code>）。
+    <br>
+    <b>高低位看板（辅助周频高低切换）：</b>持仓表里填了代码的股票会自动出现在「高低位看板」里；候选股用面板右上角的输入框加入<b>观察池</b>（观察池<b>不参与任何盈亏统计</b>，只是盯行情）。<b>平仓存档后不会从看板消失</b>：那支股票会带着「<b>已平仓</b>」标记继续留在看板上（连同你打的板块标签一起转过去），方便盯着它回落再买回；不想再盯了，点该行的「✕」即可从看板移除（不影响已完成记录与盈亏统计）。每行显示：
+    <ul>
+      <li><b>15日分位</b>：现价在近 15 个交易日高低区间里的位置，100 = 顶着区间最高（高位，偏卖），0 = 贴着最低（低位，偏买）；突破区间会标注「创 15 日新高 / 新低」</li>
+      <li><b>15日最高 / 最低</b>：区间两个边界价，下面的小字是现价距它们的百分比</li>
+      <li><b>均线位置</b>：现价相对 MA5 / MA10 / MA30 在上方还是下方（悬停看具体百分比）</li>
+    </ul>
+    K 线数据来自<b>新浪财经</b>，覆盖<b>沪深两市</b>与<b>北交所 920 段</b>；<b>港股 / 美股</b>以及<b>北交所 43/83/87/88 存量代码段</b>显示"<b>暂无历史K线源</b>"（这几段在免费的公开数据源上都拿不到可靠历史，宁可标不支持也不用错数据算分位——实时价不受影响）。该接口没有 CORS 头，所以走脚本标签通道；点「⟳ 刷新分位」强制重拉，点「⟳ 刷新现价」时会顺带更新（有 5 分钟缓存，自动刷新不会反复拉）。分位只是<b>统计参考</b>，不是买卖建议。
+    <br>
+    <b>数据来源与说明：</b>行情取自腾讯财经公开接口（<code>qt.gtimg.cn</code>），是免费接口、无需注册，因此<b>不保证实时性与准确性，仅供参考，请以券商交易软件为准</b>。接口不可用（断网、被安全软件拦截）时会提示失败并保留原价，不会把数据改坏。若某只股票查不到，通常意味着代码写错、已退市或该市场不支持。
+    <br>
+    <b>数据保存在哪、怎么防丢：</b>所有数据自动存在<b>你本机浏览器的 localStorage</b> 里，关网页、关电脑都还在，不需要每次保存。但它有三个软肋：<span class="warnc">换浏览器、清理浏览器数据、换电脑</span>都会丢。所以请用「已完成交易记录」面板里的 <b>⤓ 导出备份 JSON</b> 定期存一份——它包含<b>持仓批次、已完成记录、费率、设置</b>的全部内容，随时能用 <b>⤒ 导入 JSON</b> 完整还原：
+    <ul>
+      <li>导入方式可选：<b>仅合并已完成记录</b>（只追加备份里没有的记录，重复的自动跳过，持仓与费率不动）或 <b>覆盖全部数据</b>（用备份替换当前所有内容，会有二次确认）</li>
+      <li>可以先点「解析内容」，看清楚这份备份含多少持仓、多少记录、累计收益多少、有多少笔与现有记录重复，再决定要不要导入</li>
+      <li>「导出记录 CSV」和「导出 CSV」只用于导出查看（Excel 等），<b>不能导回来</b>——要能还原请用 JSON</li>
+      <li>建议在每次大额清仓存档后导出一份，备份状态会显示在按钮右侧</li>
+    </ul>
+    <b>颜色约定：</b><span class="up">红色代表盈利 / 上涨</span>，<span class="down">绿色代表亏损 / 下跌</span>，<span class="warnc">橙色为需要检查的异常</span>，<span style="color:#7c3aed">紫色为空头</span>。
+    所有数据（含费率、批次明细与已完成记录）自动保存在本机浏览器中，关掉网页也不会丢。
+  </div>
+
+  <div class="mask" id="impMask">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="mt">导入 JSON 备份</div>
+        <button class="mx" id="impClose" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>选择之前导出的 <code>.json</code> 备份文件，或者直接把 JSON 文本粘贴到下面。</p>
+        <div class="improw">
+          <input type="file" class="impf" id="impFile" accept=".json,application/json">
+        </div>
+        <textarea class="imp" id="impText" placeholder='把备份的 JSON 内容粘贴到这里，例如：&#10;{"app":"股票收益计算器","schema":"stock-pl-calculator","hist":[...]}'></textarea>
+        <div class="imppreview" id="impPreview"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="impParse">解析内容</button>
+        <button class="btn" id="impMerge" disabled>仅合并已完成记录</button>
+        <button class="btn danger" id="impReplace" disabled>覆盖全部数据</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mask" id="alertMask">
+    <div class="modal narrow">
+      <div class="modal-head">
+        <div class="mt" id="alertTitle">⚠ 盈亏提醒</div>
+        <button class="mx" id="alertClose" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="alertbig" id="alertValue">—</div>
+        <div class="alertcond" id="alertCond">—</div>
+        <div class="arcbox" id="alertDetail"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="alertSettings">调整提醒线</button>
+        <button class="btn primary" id="alertOk">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mask" id="arcMask">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="mt" id="arcTitle">存档为已完成交易</div>
+        <button class="mx" id="arcClose" title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="arcmode" id="arcModeBar">
+          <label><input type="radio" name="arcmode" value="step" checked> 逐笔清盘<em>数量要恰好分配完</em></label>
+          <label><input type="radio" name="arcmode" value="force"> 强制清盘<em>按实际成交，数量可多可少</em></label>
+        </div>
+        <div class="arcbox" id="arcSummary"></div>
+        <div id="arcForceWrap" style="display:none">
+          <div class="arcfield">
+            <label for="arcForcePrice" id="arcForcePriceLbl">成交价 ¥</label>
+            <input type="number" id="arcForcePrice" step="0.001" min="0" placeholder="0.000">
+            <label for="arcForceQty">数量（股）</label>
+            <input type="number" id="arcForceQty" step="1" min="0" placeholder="0">
+          </div>
+          <div class="archint" id="arcForceHint"></div>
+        </div>
+        <div id="arcLiqWrap">
+          <div class="liqhead">
+            <span class="liqtitle">清盘明细<em id="arcLiqHint"></em></span>
+            <span class="liqbtns">
+              <button class="btn sm" id="arcAutoFill">按剩余数量填一笔</button>
+              <button class="btn sm" id="arcAddLiq">＋ 再添一笔</button>
+            </span>
+          </div>
+          <div class="liqgrid">
+            <div class="liqtablewrap">
+              <table class="liqtable">
+                <colgroup>
+                  <col class="c-price"><col class="c-qty"><col class="c-amt"><col class="c-act">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>成交价 ¥</th>
+                    <th>数量（股）</th>
+                    <th>金额</th>
+                    <th class="ctr"></th>
+                  </tr>
+                </thead>
+                <tbody id="arcLiqBody"></tbody>
+                <tfoot>
+                  <tr>
+                    <td class="lft">合计</td>
+                    <td id="arcLiqQty">0</td>
+                    <td id="arcLiqAmt">¥0.00</td>
+                    <td class="actc"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div class="liqside">
+              <div class="liqleft" id="arcLiqLeft"></div>
+            </div>
+          </div>
+        </div>
+        <div class="arcfield">
+          <label for="arcDate">成交日期</label>
+          <input type="date" id="arcDate">
+          <div class="archint">默认今天，事后补录可以改</div>
+        </div>
+        <div class="arcbox" id="arcPreview"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" id="arcCancel">取消</button>
+        <button class="btn primary" id="arcOk" disabled>确认存档</button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /col-main -->
+
+  <aside class="col-side">
+    <div class="comm">
+      <div class="comm-head">
+        <div class="ct">国际大宗商品</div>
+        <button class="ico" id="commRefresh" title="只刷新下面三个品种（上方「刷新现价」会连持仓一起刷）">⟳</button>
+      </div>
+      <div class="comm-note" id="commNote">尚未刷新</div>
+      <div class="comm-rows" id="commRows"></div>
+      <div class="comm-foot">数据来源：腾讯财经公开接口（qt.gtimg.cn）<br>免费接口，不保证实时性与准确性，仅供参考</div>
+    </div>
+  </aside>
+  </div><!-- /body-row -->
+
+</div>
+
+<script>
+{{APP_JS}}</script>
+</body>
+</html>
+
+
+
+
+

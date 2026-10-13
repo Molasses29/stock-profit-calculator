@@ -1,0 +1,624 @@
+  :root{
+    --bg:#f2f5f9;
+    --card:#ffffff;
+    --line:#e4e9f2;
+    --line-strong:#cfd8e6;
+    --txt:#1b2430;
+    --muted:#7c8798;
+    --up:#d92d20;        /* 盈利 / 上涨 —— 红 */
+    --up-bg:#fef3f2;
+    --down:#0c9a6c;      /* 亏损 / 下跌 —— 绿 */
+    --down-bg:#eefaf5;
+    --warn:#c2740a;
+    --warn-bg:#fff8ec;
+    --primary:#2f6bff;
+    --primary-soft:#eaf1ff;
+    --long:#2f6bff;      /* 多头 */
+    --long-bg:#eaf1ff;
+    --short:#7c3aed;     /* 空头 */
+    --short-bg:#f3ecff;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--txt);
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB","Segoe UI",system-ui,-apple-system,sans-serif;
+    font-size:14px;
+    line-height:1.5;
+    padding:28px 20px 60px;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* 页面骨架：主栏 + 右侧商品栏。
+     主栏上限保持 1300px（表格宽度的自适应范围依赖这个值），多出来的横向空间给商品栏，
+     这样在宽屏上正好用掉标题两侧的空白。
+     窗口不够宽时（主栏会被挤到 940px 以下）商品栏自动变成顶部一条，
+     避免把持仓表挤到重新出现横向滚动条。 */
+  .wrap{max-width:1520px;margin:0 auto;}
+  .body-row{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;}
+  /* flex-basis 必须是 0，不能是 auto：换行判断用的是"假定主尺寸"，
+     而 basis:auto 时它取内容宽度（主栏内容很宽）→ 明明还放得下也会换行，
+     侧栏就被挤到主栏下方去了。basis:0 让主栏老老实实占满剩余宽度。 */
+  .col-main{flex:1 1 0;min-width:0;max-width:1300px;}
+  .col-side{flex:0 0 200px;position:sticky;top:16px;}
+
+  .head{margin-bottom:18px;max-width:1300px;}
+  h1{font-size:22px;margin:0 0 6px;letter-spacing:.3px;}
+  .sub{color:var(--muted);font-size:13px;margin:0;}
+
+  /* ---------- 汇总卡 ---------- */
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:13px 15px;box-shadow:0 1px 2px rgba(27,36,48,.04);
+  }
+  .card .k{color:var(--muted);font-size:12.5px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .card .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.2px;}
+  .card .x{font-size:12px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums;}
+  .card.hero{background:linear-gradient(180deg,#fff,#fbfdff);}
+  .card.hero .v{font-size:24px;}
+  .card.side-l{border-left:3px solid var(--long);}
+  .card.side-s{border-left:3px solid var(--short);}
+  .card.side-l .k{color:var(--long);}
+  .card.side-s .k{color:var(--short);}
+  .up{color:var(--up);}
+  .down{color:var(--down);}
+  .flat{color:var(--muted);}
+  .warnc{color:var(--warn);}
+
+  /* ---------- 费率条 ---------- */
+  .feebar{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px 16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(27,36,48,.04);
+    display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  }
+  .feebar .ft{
+    font-weight:600;font-size:13px;color:#5b6678;padding-right:16px;
+    border-right:1px solid var(--line);white-space:nowrap;
+  }
+  .fg{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);white-space:nowrap;}
+  .fg input{
+    width:72px;font:inherit;font-size:13px;color:var(--txt);text-align:right;
+    border:1px solid var(--line-strong);border-radius:7px;padding:5px 8px;
+    background:#fff;font-variant-numeric:tabular-nums;outline:none;transition:.15s;
+    -moz-appearance:textfield;
+  }
+  .fg input::-webkit-outer-spin-button,.fg input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .fg input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
+  .fg .u{color:#a3adbd;}
+  .feebar .tip{margin-left:auto;font-size:12px;color:#a3adbd;white-space:nowrap;}
+
+  /* ---------- 盈亏提醒 ---------- */
+  .alertbar .fg input[type=checkbox]{width:auto;margin:0;accent-color:var(--primary);}
+  .alertbar .fg.al-tripped{color:var(--warn);font-weight:600;}
+  /* 状态文字比费率条的说明长，允许折行，避免窄窗口把它顶出容器 */
+  .alertbar .tip{white-space:normal;}
+  .modal.narrow{max-width:480px;}
+  .alertbig{
+    font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2;
+    text-align:center;padding:4px 0 2px;letter-spacing:-.5px;
+  }
+  .alertbig.up{color:var(--up);}
+  .alertbig.down{color:var(--down);}
+  .alertbig.flat{color:var(--muted);}
+  .alertcond{text-align:center;font-size:13px;color:#5b6678;margin-bottom:12px;}
+  .alertcond b{color:var(--warn);}
+
+  /* ---------- 面板 ---------- */
+  .panel{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:0 1px 2px rgba(27,36,48,.04);overflow:hidden;margin-bottom:18px;
+  }
+  .panel-top{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;
+  }
+  .panel-top .t{font-weight:600;font-size:14.5px;}
+  .panel-top .t span{color:var(--muted);font-weight:400;font-size:12.5px;margin-left:8px;}
+  .tools{display:flex;gap:8px;flex-wrap:wrap;}
+  button.btn{
+    font:inherit;font-size:13px;border-radius:9px;padding:7px 14px;cursor:pointer;
+    border:1px solid var(--line-strong);background:#fff;color:var(--txt);transition:.16s;
+  }
+  button.btn:hover{border-color:#aebbd0;background:#fafcff;}
+  button.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600;}
+  button.btn.primary:hover{background:#1f56e0;border-color:#1f56e0;}
+  button.btn.shortbtn{background:var(--short);border-color:var(--short);color:#fff;font-weight:600;}
+  button.btn.shortbtn:hover{background:#6b28d9;border-color:#6b28d9;}
+  button.btn.ghost{color:var(--muted);}
+  button.btn.sm{font-size:12.5px;padding:5px 10px;border-radius:8px;}
+
+  .scroll{overflow-x:auto;}
+  /* 表格宽度自适应容器。
+     原来写死 min-width:1192px，加上全局 th,td{white-space:nowrap}，
+     使「最小内容宽度 = 最大内容宽度 = 1296px」，表格拒绝收缩、必然出现横向滚动条。
+     现在把硬下限去掉，并允许 .hint 换行（见下），表格就服从 width:100%，
+     窗口不够宽时提示文字折行而不是把整表撑宽。 */
+  table{width:100%;border-collapse:collapse;min-width:0;}
+  table.hist-table{min-width:0;}
+  th,td{padding:9px 9px;text-align:right;white-space:nowrap;}
+  thead th{
+    background:#f8fafd;color:var(--muted);font-weight:600;font-size:12.5px;
+    border-bottom:1px solid var(--line);white-space:normal;
+  }
+  th.lft,td.lft{text-align:left;}
+  tbody tr.stock-row{border-bottom:1px solid #f0f4f9;cursor:pointer;}
+  tbody tr.stock-row:hover{background:#fbfdff;}
+  tbody tr.stock-row.open{background:#f7fbff;}
+  tbody tr.stock-row.open td{border-bottom:0;}
+  tfoot td{
+    background:#f8fafd;font-weight:700;border-top:1px solid var(--line-strong);
+    font-variant-numeric:tabular-nums;padding:12px 9px;
+    /* 允许折行：合计行继承 th,td 的 nowrap 时，「2,267 / 空 2,000」整段不可断，
+       会把该列宽度下限顶到 132px，整表也就再也压不下去（会重新出现横向滚动条）。 */
+    white-space:normal;
+  }
+  /* 但合计行里的「数值」单元格要保持不断行：否则「+¥13,327.19」会在「+」后被拆开，
+     变成「+」独占一行的怪样子。这几格的值本来也不该折行，代价只是列宽下限多 27px。 */
+  #t-float,#t-real,#t-total,#t-costval{white-space:nowrap;}
+  .cell-num{font-variant-numeric:tabular-nums;font-size:14.5px;}
+  td.fee{color:var(--muted);font-variant-numeric:tabular-nums;font-size:13.5px;cursor:help;
+    border-bottom:1px dotted #cfd8e6;}
+  td.mutedc{color:#9aa5b5;font-variant-numeric:tabular-nums;font-size:13.5px;}
+  .caret{display:inline-block;width:12px;color:#b9c3d1;font-size:11px;transition:.15s;user-select:none;}
+  tr.stock-row.open .caret{color:var(--primary);}
+
+  /* 多空方向标记 */
+  .dir{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:22px;height:22px;border-radius:7px;font-size:11.5px;font-weight:700;
+    border:1px solid transparent;vertical-align:middle;margin-right:6px;
+    font-family:inherit;padding:0;transition:.15s;flex:0 0 auto;
+  }
+  .dir.long{background:var(--long-bg);color:var(--long);border-color:#c9daff;}
+  .dir.short{background:var(--short-bg);color:var(--short);border-color:#ddd0ff;}
+  button.dir{cursor:pointer;}
+  button.dir:hover{box-shadow:0 0 0 3px rgba(47,107,255,.12);}
+  button.dir.short:hover{box-shadow:0 0 0 3px rgba(124,58,237,.12);}
+
+  input.f{
+    width:100%;font:inherit;font-size:13.5px;color:var(--txt);
+    border:1px solid var(--line-strong);border-radius:8px;padding:7px 9px;
+    background:#fff;text-align:right;font-variant-numeric:tabular-nums;
+    outline:none;transition:.15s;
+  }
+  input.f:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
+  input.f.name{text-align:left;min-width:78px;}
+  /* 现价输入框给个下限：列被挤压时也不能窄到装不下「1278.52」 */
+  input.f.cur{min-width:76px;}
+  input.f::-webkit-outer-spin-button,input.f::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  input.f[type=number]{-moz-appearance:textfield;}
+  td.nametd{display:flex;align-items:center;gap:0;}
+
+  td.act{white-space:nowrap;}
+  .ico{
+    border:1px solid var(--line-strong);background:#fff;cursor:pointer;font-size:13px;
+    line-height:1;width:26px;height:26px;border-radius:7px;color:#8b95a7;
+    transition:.16s;vertical-align:middle;padding:0;
+  }
+  .ico + .ico{margin-left:5px;}
+  .ico.done:hover{border-color:var(--primary);background:var(--primary-soft);color:var(--primary);}
+  .ico.del:hover{border-color:var(--up);background:var(--up-bg);color:var(--up);}
+
+  .empty{padding:34px 20px;text-align:center;color:var(--muted);font-size:13.5px;}
+  .empty b{color:#5b6678;}
+  /* 提示行允许换行：全局 td 是 nowrap，若不让它换行，长提示会把整列撑宽、把表格顶出容器。
+     值本身（.cell-num）保持 nowrap 不折行，只有说明文字在空间不足时折行。
+     .dim 用于把「毛/卖出费」这类辅助信息显式换到下一行，避免在数字中间断开。 */
+  .hint{display:block;font-size:11px;margin-top:3px;font-weight:400;color:#a3adbd;white-space:normal;}
+  .hint .dim{display:block;}
+  /* 不可断开的短语：中文会在任意字之间换行，像「已清仓，可存档」会被拆成「已清」/「仓，可存档」，
+     包一层 .nb 让整段整体换行；宽度不足以整段放下时也不会溢出（会先把上一行挤走） */
+  .nb{white-space:nowrap;}
+
+  /* ---------- 明细展开区 ---------- */
+  tr.detail-row > td{padding:0;background:#f9fbfe;border-bottom:1px solid var(--line);}
+  .detail{padding:14px 16px 16px;}
+  .lots{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;}
+  .lot-col{flex:1 1 400px;min-width:340px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .lot-col.opening{border-color:#ddd0ff;}
+  .lot-col.closing{border-color:#c9daff;}
+  .lot-head{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 12px;border-bottom:1px solid var(--line);background:#fbfcfe;
+  }
+  .lot-col.opening .lot-head{background:#faf7ff;}
+  .lot-head .lt{font-size:13px;font-weight:600;color:#5b6678;}
+  .lot-head .lt em{font-style:normal;color:var(--muted);font-weight:400;margin-left:6px;font-size:12px;}
+  .lot-table{min-width:0;width:100%;}
+  .lot-table th,.lot-table td{padding:6px 10px;font-size:13px;}
+  .lot-table thead th{background:#fff;border-bottom:1px solid #eef2f8;font-size:12px;}
+  .lot-table tbody tr{border-bottom:1px solid #f4f7fb;}
+  .lot-table tbody tr:last-child{border-bottom:0;}
+  .lot-table tfoot td{background:#fbfcfe;font-size:12.5px;padding:8px 10px;border-top:1px solid var(--line);}
+  .lot-table input.f{padding:5px 8px;font-size:13px;border-radius:7px;}
+  .lot-empty{padding:16px 12px;text-align:center;color:#b3bcc9;font-size:12.5px;}
+  .lot-note{
+    margin-top:12px;padding:10px 12px;background:#fff;border:1px dashed var(--line-strong);
+    border-radius:10px;font-size:12.5px;color:#5b6678;line-height:1.75;
+    font-variant-numeric:tabular-nums;
+    /* 必须显式允许折行：这一段「加权平均法：…」有 90 多字，
+       它会继承外层 td 的 nowrap，于是整行不可断、把外层表格顶到 1299px，
+       展开任意一行明细就重新出现横向滚动条。 */
+    white-space:normal;
+  }
+  .lot-note b{color:var(--txt);}
+
+  /* ---------- 已完成记录 ---------- */
+  .hist-sum{display:flex;flex-wrap:wrap;background:#f8fafd;border-bottom:1px solid var(--line);}
+  .hs{flex:1 1 0;min-width:150px;padding:14px 16px;border-right:1px solid var(--line);}
+  .hs:last-child{border-right:0;}
+  .hs-v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.2px;}
+  .hs.hero .hs-v{font-size:23px;}
+  .hs-k{font-size:12px;color:var(--muted);margin-top:2px;}
+
+  input.hdate{
+    font:inherit;font-size:13px;color:var(--txt);border:1px solid var(--line);
+    border-radius:7px;padding:4px 7px;background:#fff;cursor:pointer;
+    font-variant-numeric:tabular-nums;outline:none;width:128px;transition:.15s;
+  }
+  input.hdate:hover{border-color:var(--line-strong);}
+  input.hdate:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
+  .hist-name{display:flex;align-items:center;}
+  /* ---------- 交易计划（展开区输入卡 + 行内摘要） ---------- */
+  .planbox{
+    padding:10px 12px;margin-bottom:10px;background:#fbfcfe;
+    border:1px solid var(--line);border-radius:10px;
+  }
+  .planbox .ptitle{font-size:12.5px;font-weight:600;color:#5b6678;margin-bottom:8px;}
+  .planbox .ptitle .hint{font-weight:400;margin-left:6px;}
+  .planbox .prow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;}
+  .planbox .prow label{
+    display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--muted);white-space:nowrap;
+  }
+  .planbox input.pin{
+    font:inherit;font-size:12.5px;color:var(--txt);background:#fff;border:1px solid var(--line-strong);
+    border-radius:7px;padding:5px 8px;outline:none;transition:.15s;
+  }
+  .planbox input.pin:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
+  .planbox input.pin.num{width:96px;text-align:right;font-variant-numeric:tabular-nums;}
+  .planbox .prow label.pwhy input.pin{width:240px;}
+  .planbox .pnote{
+    margin-top:8px;padding-top:7px;border-top:1px dashed var(--line);
+    font-size:12px;color:#5b6678;white-space:normal;min-height:18px;
+  }
+  .planbox .pnote b{color:#3c4a5e;font-weight:600;}
+  .planline{
+    margin-top:1px;font-size:11px;color:#a3adbd;white-space:normal;line-height:1.5;
+  }
+  .planline .ptag{
+    display:inline-block;padding:0 5px;border-radius:5px;font-size:10.5px;
+    background:#eef2f8;color:#5b6678;margin-right:4px;
+  }
+  .plansep{display:inline-block;width:1px;height:16px;background:var(--line);margin:0 10px;vertical-align:middle;}
+
+  /* ---------- 月度收益（已完成记录按月汇总） ---------- */
+  .mbox{border-bottom:1px solid var(--line);background:#fbfcfe;}
+  .mtable{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .mtable th{
+    padding:8px 12px;text-align:center;font-weight:600;color:var(--muted);white-space:nowrap;
+    border-bottom:1px solid var(--line);background:#f8fafd;font-size:12px;
+  }
+  .mtable th.lft{text-align:left;}
+  .mtable td{padding:8px 12px;text-align:center;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;}
+  .mtable tr:last-child td{border-bottom:0;}
+  .mtable td .hint{display:block;font-size:11px;color:#a3adbd;margin-top:1px;}
+  .mtable td .hint.sub{margin-top:0;}
+  .mtable td .cell-num{display:inline;}
+  /* 收益柱：中间为 0 轴，右伸红=盈利、左伸绿=亏损（A股习惯，与全表配色一致） */
+  .mbar{
+    position:relative;height:12px;min-width:120px;background:#f1f4f9;border-radius:999px;overflow:hidden;
+  }
+  .mbar::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:#cfd7e3;}
+  .mbar i{position:absolute;top:0;height:100%;}
+  .mbar i.pos{background:var(--up);border-radius:0 999px 999px 0;opacity:.85;}
+  .mbar i.neg{background:var(--down);border-radius:999px 0 0 999px;opacity:.85;}
+  #month-toggle.on{background:var(--primary-soft);border-color:var(--primary);color:var(--primary);}
+
+  /* ---------- 说明 ---------- */
+  .note{color:var(--muted);font-size:12.5px;line-height:1.85;}
+  .note b{color:#5b6678;font-weight:600;}
+  .note code{
+    background:#eef2f8;border-radius:5px;padding:1px 6px;font-size:12px;
+    font-family:ui-monospace,Consolas,monospace;color:#3c4a5e;
+  }
+  .note ul{margin:6px 0 0;padding-left:20px;}
+  .note li{margin-bottom:2px;}
+  .note .tag{display:inline-block;padding:0 6px;border-radius:6px;font-size:11.5px;font-weight:600;margin-right:4px;}
+  .note .tag.long{background:var(--long-bg);color:var(--long);}
+  .note .tag.short{background:var(--short-bg);color:var(--short);}
+
+  /* ---------- 实时行情工具条 ---------- */
+  .qbar{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:10px 16px;border-bottom:1px solid var(--line);background:#fbfcfe;font-size:12.5px;
+  }
+  .qbar .qlabel{color:#5b6678;font-weight:600;}
+  .qbar label{display:inline-flex;align-items:center;gap:5px;color:var(--muted);cursor:pointer;}
+  .qbar input[type=checkbox]{cursor:pointer;margin:0;}
+  .qbar select{
+    font:inherit;font-size:12.5px;border:1px solid var(--line-strong);border-radius:7px;
+    padding:3px 6px;background:#fff;color:var(--txt);outline:none;cursor:pointer;
+  }
+  .qstatus{margin-left:auto;color:#a3adbd;white-space:nowrap;}
+  .qstatus.ok{color:#5b6678;}
+  .qstatus.err{color:var(--warn);}
+  .qstatus.loading{color:var(--primary);}
+  .codesrc{color:#c3ccd9;}
+  input.f.code{width:74px;min-width:74px;flex:0 0 auto;text-align:left;font-size:12.5px;padding:6px 8px;}
+  td.nametd{gap:6px;}
+  .qh.up{color:var(--up);}
+  .qh.down{color:var(--down);}
+  .qh.warnc{color:var(--warn);}
+  /* 持仓行的 15 日分位槽：轨道=近15日高低区间，深灰刻度=开仓均价（固定），
+     彩色圆点=当前价（浮动，≥75 红 / ≤25 绿 / 中间蓝，与高低位看板同色系）。
+     轨道上 25% / 75% 两道浅竖线标出低/高位区分界。 */
+  .cbar-holder{position:relative;height:15px;margin-top:2px;}
+  .cbar{position:absolute;inset:0;cursor:default;}
+  .cbar-track{position:absolute;left:0;right:0;top:3.5px;height:8px;border-radius:999px;background:#eef1f6;}
+  .cbar-track::before,.cbar-track::after{content:"";position:absolute;top:0;bottom:0;width:1px;background:#dde3ec;}
+  .cbar-track::before{left:25%;}
+  .cbar-track::after{left:75%;}
+  .cbar-cost{position:absolute;top:0;width:2px;height:15px;background:#6b7688;border-radius:1px;transform:translateX(-1px);}
+  .cbar-cur{position:absolute;top:3px;width:9px;height:9px;border-radius:50%;border:1.5px solid #fff;
+    box-shadow:0 0 0 1px rgba(60,70,90,.15);transform:translateX(-50%);}
+  .cbar-cur.hi{background:#e24b4a;}
+  .cbar-cur.mid{background:#85b7eb;}
+  .cbar-cur.lo{background:#5dcaa5;}
+
+  @media (max-width:1000px){
+    .cards{grid-template-columns:repeat(2,1fr);}
+    .card.hero{grid-column:span 2;}
+    body{padding:20px 12px 50px;}
+    .feebar .tip{margin-left:0;}
+    .hs{flex:1 1 45%;}
+    .lot-col{min-width:280px;}
+  }
+
+  /* ---------- 备份与恢复 ---------- */
+  .bbar{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:10px 16px;border-bottom:1px solid var(--line);background:#fbfcfe;font-size:12.5px;
+  }
+  .bbar .qlabel{color:#5b6678;font-weight:600;}
+  .bstatus{margin-left:auto;color:#a3adbd;white-space:nowrap;}
+  .bstatus.ok{color:#5b6678;}
+  .bstatus.err{color:var(--warn);}
+
+  .mask{
+    position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(27,36,48,.42);z-index:50;
+    display:none;align-items:center;justify-content:center;padding:20px;
+  }
+  .mask.on{display:flex;}
+  .modal{
+    background:#fff;border-radius:16px;width:100%;max-width:640px;
+    box-shadow:0 18px 48px rgba(27,36,48,.24);overflow:hidden;
+    display:flex;flex-direction:column;max-height:88vh;
+  }
+  .modal-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:15px 18px;border-bottom:1px solid var(--line);
+  }
+  .modal-head .mt{font-size:15px;font-weight:700;}
+  .modal-head .mx{
+    border:0;background:transparent;cursor:pointer;font-size:18px;line-height:1;
+    color:#b9c3d1;padding:4px 8px;border-radius:8px;transition:.15s;
+  }
+  .modal-head .mx:hover{background:#f2f5f9;color:var(--txt);}
+  .modal-body{padding:16px 18px;overflow-y:auto;font-size:13px;color:#5b6678;line-height:1.8;}
+  .modal-body p{margin:0 0 10px;}
+  .modal-body ol{margin:0 0 12px;padding-left:20px;}
+  .modal-body b{color:var(--txt);}
+  .modal-body code{
+    background:#eef2f8;border-radius:5px;padding:1px 6px;font-size:12px;
+    font-family:ui-monospace,Consolas,monospace;color:#3c4a5e;
+  }
+  textarea.imp{
+    width:100%;height:126px;font-family:ui-monospace,Consolas,monospace;font-size:12px;
+    border:1px solid var(--line-strong);border-radius:10px;padding:10px;resize:vertical;
+    background:#fbfcfe;color:#3c4a5e;outline:none;line-height:1.6;
+  }
+  textarea.imp:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);background:#fff;}
+  .improw{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;}
+  input[type=file].impf{font:inherit;font-size:12.5px;}
+  .imppreview{
+    margin-top:12px;padding:12px 14px;border-radius:10px;background:#f8fafd;
+    border:1px solid var(--line);font-size:12.5px;line-height:1.9;display:none;
+  }
+  .imppreview.on{display:block;}
+  .imppreview.ok{border-color:#cfe3d8;background:#f6fbf8;}
+  .imppreview.err{border-color:#f0dfc4;background:#fffaf3;color:var(--warn);}
+  .imppreview .kv{display:flex;justify-content:space-between;gap:16px;}
+  .imppreview .kv span:first-child{color:var(--muted);}
+  .imppreview .kv span:last-child{font-variant-numeric:tabular-nums;font-weight:600;color:var(--txt);}
+  .modal-foot{
+    display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;
+    padding:14px 18px;border-top:1px solid var(--line);background:#fbfcfe;
+  }
+  button.btn:disabled{opacity:.45;cursor:not-allowed;}
+  button.btn.danger{background:#fff;border-color:#f0c9c4;color:var(--up);font-weight:600;}
+  button.btn.danger:hover{background:var(--up-bg);border-color:var(--up);}
+
+  /* 存档弹窗 */
+  .arcbox{
+    margin:0 0 12px;padding:11px 14px;border-radius:10px;
+    background:#f8fafd;border:1px solid var(--line);font-size:12.5px;line-height:1.95;
+  }
+  .arcbox.good{border-color:#cfe3d8;background:#f6fbf8;}
+  .arcbox .kv{display:flex;justify-content:space-between;gap:16px;}
+  .arcbox .kv span:first-child{color:var(--muted);}
+  .arcbox .kv span:last-child{font-variant-numeric:tabular-nums;font-weight:600;color:var(--txt);}
+  .arcbox .kv span.up{color:var(--up);}
+  .arcbox .kv span.down{color:var(--down);}
+  .arcbox .kv span.flat{color:var(--muted);}
+  .arcbox .kv span.warnc{color:var(--warn);}
+  /* 口径 / 对照说明：整宽一行，窄弹窗里也折得干净 */
+  .arcbox .arcnote{
+    display:block;margin-top:9px;padding-top:9px;border-top:1px dashed #e6ebf2;
+    font-size:12px;line-height:1.75;color:#8a94a6;white-space:normal;
+    font-variant-numeric:tabular-nums;
+  }
+  .arcbox .arcnote b{color:#5b6678;font-weight:600;}
+  .arcfield{display:flex;align-items:center;gap:10px;margin:12px 0;flex-wrap:wrap;}
+  /* 存档弹窗：逐笔清盘 / 强制清盘 两种模式 */
+  .arcmode{display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap;}
+  .arcmode label{
+    flex:1 1 190px;display:flex;align-items:center;gap:7px;cursor:pointer;
+    padding:9px 12px;border:1px solid var(--line-strong);border-radius:10px;
+    background:#fff;font-size:13px;color:#5b6678;font-weight:600;transition:.15s;
+  }
+  .arcmode label:hover{border-color:var(--primary);}
+  .arcmode label:has(input:checked){border-color:var(--primary);background:var(--primary-soft);color:var(--primary);}
+  .arcmode label em{font-style:normal;font-weight:400;font-size:11px;color:#a3adbd;}
+  .arcmode label:has(input:checked) em{color:var(--primary);}
+  .arcmode input{accent-color:var(--primary);margin:0;}  .arcfield label{font-size:13px;color:#5b6678;font-weight:600;white-space:nowrap;}
+  .arcfield input{
+    font:inherit;font-size:13.5px;color:var(--txt);border:1px solid var(--line-strong);
+    border-radius:9px;padding:8px 10px;background:#fff;outline:none;transition:.15s;
+    font-variant-numeric:tabular-nums;-moz-appearance:textfield;
+  }
+  .arcfield input[type=number]{width:180px;text-align:right;}
+  .arcfield input[type=date]{width:158px;}
+  .arcfield input::-webkit-outer-spin-button,.arcfield input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .arcfield input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
+  .archint{font-size:12px;color:#a3adbd;}
+
+  /* 清盘明细分笔表 */
+  .liqhead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 8px;}
+  .liqtitle{font-size:13px;font-weight:600;color:#5b6678;}
+  .liqtitle em{font-style:normal;font-weight:400;font-size:12px;color:#a3adbd;margin-left:8px;}
+  .liqbtns{display:flex;gap:8px;flex-wrap:wrap;}
+
+  /* 关键：表格必须 table-layout:fixed 且显式 min-width:0。
+     td 的 white-space:nowrap + input.f 的 width:100% 在 auto 布局下互相反推，
+     整表被撑到 1192px（实测），弹窗里出现横向滚动条。
+     只改 table-layout:fixed 还不够——宽度是百分比时，Chrome 会把「最小内容宽度」
+     按 列宽% 与输入框固有宽度 反解出一个巨大值（实测 min-width=1192px），
+     表格照样拒绝收缩。显式 min-width:0 打断这个循环后，表格才真正服从容器宽度：
+     表宽 375px、列宽约 105/94/128/49、输入框 88/78px，溢出归零。
+     窄列省下来的横向空间交给右侧「分配进度」块，不浪费也不溢出。 */
+  .liqgrid{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;}
+  .liqgrid .liqtablewrap{flex:1 1 300px;min-width:0;}
+  .liqgrid .liqside{flex:1 1 140px;min-width:0;}
+
+  .liqtable{
+    width:100%;table-layout:fixed;min-width:0;
+    border-collapse:collapse;border:1px solid var(--line);border-radius:10px;overflow:hidden;
+  }
+  .liqtable th,.liqtable td{
+    padding:7px 8px;text-align:right;font-size:13px;white-space:nowrap;
+    font-variant-numeric:tabular-nums;
+  }
+  .liqtable col.c-price{width:28%;}
+  .liqtable col.c-qty{width:25%;}
+  .liqtable col.c-amt{width:34%;}
+  .liqtable col.c-act{width:13%;}
+  .liqtable thead th{background:#f8fafd;color:var(--muted);font-weight:600;font-size:12px;border-bottom:1px solid var(--line);}
+  .liqtable td.lft{text-align:left;}
+  .liqtable th.ctr,.liqtable td.ctr{text-align:center;}
+  .liqtable tbody tr{border-bottom:1px solid #f2f5f9;}
+  .liqtable tfoot td{
+    background:#fbfcfe;font-weight:600;border-top:1px solid var(--line);
+    font-variant-numeric:tabular-nums;
+  }
+  .liqtable input.f{padding:5px 8px;font-size:13px;border-radius:7px;text-align:right;}
+  .liqtable td.actc{padding:5px 6px;text-align:center;}
+  .liqamt{color:var(--muted);font-variant-numeric:tabular-nums;}
+  .liqleft{
+    padding:9px 12px;border-radius:10px;background:#f8fafd;border:1px solid var(--line);
+    font-size:12px;color:var(--muted);line-height:1.75;
+    font-variant-numeric:tabular-nums;
+  }
+  .liqleft.good{border-color:#cfe3d8;background:#f6fbf8;}
+  .liqleft .ok{color:var(--down);font-weight:600;}
+  .liqleft .bad{color:var(--warn);font-weight:600;}
+  .liqempty{padding:14px 10px;text-align:center;color:#b3bcc9;font-size:12.5px;}
+
+  /* ---------- 国际大宗商品（侧栏） ---------- */
+  .comm{
+    background:#fff;border:1px solid var(--line);border-radius:14px;
+    box-shadow:0 1px 3px rgba(27,36,48,.05);overflow:hidden;
+  }
+  .comm-head{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:11px 13px;border-bottom:1px solid var(--line);background:#f8fafd;
+  }
+  .comm-head .ct{font-size:13.5px;font-weight:700;color:var(--txt);}
+  .comm-head .ico{width:24px;height:24px;font-size:12px;}
+  .comm-note{padding:8px 13px 0;font-size:11.5px;color:#a3adbd;line-height:1.6;}
+  .comm-rows{padding:4px 0 6px;}
+  .comm-row{padding:8px 13px;}
+  .comm-row + .comm-row{border-top:1px solid #f2f5f9;}
+  .comm-row .cl{display:flex;align-items:baseline;justify-content:space-between;gap:6px;}
+  .comm-row .cn{font-size:12.5px;font-weight:600;color:#5b6678;}
+  .comm-row .cs{font-size:10.5px;color:#b3bcc9;white-space:nowrap;}
+  .comm-row .cv{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-top:1px;}
+  .comm-row .cp{
+    font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;
+    color:var(--txt);letter-spacing:.2px;
+  }
+  .comm-row .cc{font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .comm-foot{
+    padding:8px 13px;border-top:1px solid var(--line);background:#fbfcfe;
+    font-size:10.5px;color:#b3bcc9;line-height:1.6;
+  }
+
+  /* 窄屏：主栏会被挤到 940px 以下（表格会重新出现横向滚动条），
+     此时商品栏改为顶部一条横向排列，主栏拿回全部宽度 */
+  @media (max-width:1160px){
+    .col-side{flex:1 1 100%;order:-1;position:static;}
+    .comm-rows{display:flex;flex-wrap:wrap;padding:4px 6px 6px;}
+    .comm-row{flex:1 1 160px;padding:8px 7px;}
+    .comm-row + .comm-row{border-top:0;border-left:1px solid #f2f5f9;}
+    /* 横条模式下每一格很宽，价格与涨跌幅要挨着显示，不然会被拉得很散 */
+    .comm-row .cl{justify-content:flex-start;gap:8px;}
+    .comm-row .cv{justify-content:flex-start;gap:9px;}
+  }
+
+  /* ---------- 高低位看板 + 观察池 ---------- */
+  .wtable{min-width:0;width:100%;border-collapse:collapse;}
+  .wtable th,.wtable td{padding:8px 8px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .wtable thead th{background:#f8fafd;color:var(--muted);font-weight:600;font-size:12px;border-bottom:1px solid var(--line);}
+  .wtable thead th .hint{margin-top:1px;}
+  .wtable tbody tr+tr{border-top:1px solid var(--line);}
+  .wtable td.lft{text-align:left;white-space:normal;}
+  .wtable td.macell{white-space:normal;}
+  .wtable td.actc{text-align:center;}
+  .wtag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:999px;margin-right:6px;}
+  .wtag.hold{background:var(--long-bg);color:var(--long);}
+  .wtag.obs{background:#f1efe8;color:#5f5e5a;}
+  /* 已平仓：留在看板上继续盯的股票（存档时自动留下），配色比观察更淡一档 */
+  .wtag.closed{background:#eef2f8;color:#7c8798;border:1px solid #dde3ec;}
+  .wcode-l{color:#a3adbd;font-size:11.5px;margin-left:5px;}
+  .poswrap{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
+  .posbar{flex:1 1 auto;height:8px;border-radius:999px;background:#eef1f6;overflow:hidden;min-width:48px;}
+  .posbar i{display:block;height:100%;border-radius:999px;}
+  .posbar.hi i{background:#e24b4a;}
+  .posbar.mid i{background:#85b7eb;}
+  .posbar.lo i{background:#5dcaa5;}
+  .posnum{font-size:12px;font-weight:600;min-width:72px;text-align:left;}
+  .posnum.hi{color:#a32d2d;}
+  .posnum.mid{color:#185fa5;}
+  .posnum.lo{color:#0f6e56;}
+  .machip{display:inline-block;font-size:11.5px;padding:1px 5px;border-radius:6px;border:1px solid var(--line);}
+  .machip.up{color:var(--up);}
+  .machip.down{color:var(--down);}
+  .wcode{width:148px;padding:6px 8px;border:1px solid var(--line-strong);border-radius:8px;font-size:12.5px;}
+  .wnote{padding:8px 12px 2px;font-size:12px;color:#a3adbd;min-height:20px;white-space:normal;}
+  .mutedc{color:var(--muted);}
+  /* 板块分组 */
+  .wgroup td{background:#f4f7fb;font-size:12px;padding:5px 10px;text-align:left;white-space:normal;}
+  .wgroup.none td{background:#fafbfc;}
+  .wgroup .gname{font-weight:700;font-size:12.5px;margin-right:10px;}
+  .wgroup .ginfo{color:var(--muted);}
+  .wgroup .ginfo .gc-up{color:var(--up);font-weight:700;}
+  .wgroup .ginfo .gc-lo{color:var(--down);font-weight:700;}
+  .wsec{display:inline-block;margin-left:6px;font-size:11px;padding:1px 7px;border-radius:999px;
+        border:1px dashed #c7d2e0;background:#fff;color:#5a7ba6;cursor:pointer;}
+  .wsec:hover{background:#eef4fb;}
+  /* 看板工具区：分位提醒 */
+  .kctl{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);margin-left:8px;}
+  .kctl .knum{width:44px;padding:4px 5px;border:1px solid var(--line-strong);border-radius:7px;font-size:12px;text-align:center;}
+  .ico.done{color:#0f6e56;}
+  .ico.done:hover{background:#e7f6f1;}

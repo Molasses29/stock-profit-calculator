@@ -1,0 +1,25 @@
+# 依赖
+node_modules/
+
+# 构建产物在本仓库里是「要提交」的（GitHub Pages 直接用它），所以不忽略 index.html
+
+# 用户数据备份 —— 千万不要提交（里面是你的真实持仓）
+备份*.json
+*备份*.json
+backup*.json
+stock-backup*.json
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# WorkBuddy 的工程元数据
+.workbuddy/
+
+# 临时文件（本地验证脚本产物）
+_s_*.html
+_probe*.js
+_*.png
