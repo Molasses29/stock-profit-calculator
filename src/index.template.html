@@ -154,6 +154,15 @@
     </div>
   </div>
 
+  <details class="panel" id="ledger-panel">
+    <summary class="ledger-summary">交易流水（持仓 + 已存档）</summary>
+    <div class="panel-top"><div class="t">按成交时间排列 <span>时间以录入的交易当地时间为准；同一时刻按「同刻顺序」结算。未填写时间的旧批次列在末尾。</span></div><button class="btn" id="export-trades">导出流水 CSV</button></div>
+    <p class="profit-history-note" id="ledger-note"></p>
+    <div class="scroll"><table class="ledger-table"><thead><tr>
+      <th>成交时间 / 顺序</th><th class="lft">股票 / 状态</th><th>买卖</th><th>价格</th><th>股数</th><th>成交金额</th><th>交易费用</th><th>成交后剩余</th><th>成交后含费基准价</th><th>本笔已实现净收益</th>
+    </tr></thead><tbody id="ledger-body"></tbody></table></div>
+  </details>
+
   <div class="panel" id="watchPanel">
     <div class="panel-top">
       <div class="t">高低位看板 <span>分位 = 现价在近 15 日高低区间里的位置：100 = 顶着区间最高（高位），0 = 贴着最低（低位）；观察池只看不记账；持仓平仓存档后会以「已平仓」留在看板上，方便继续盯它回落再买回</span></div>
@@ -227,11 +236,11 @@
     </div>
 
     <div class="mbox" id="monthBox" hidden>
-      <p class="profit-history-note">月度统计沿用记账口径，强制清盘未扣费；统一扣费后的结果见上方「收益拆分」及每条记录的毛 / 净收益。</p>
+      <p class="profit-history-note">时间完整的普通交易按每笔平仓的成交月份归属收益（含未存档持仓）；交易费用按发生月份统计。旧记录与强制清盘仍按存档日期及原记账口径统计。</p>
       <table class="mtable">
         <thead><tr>
           <th style="width:92px">月份</th>
-          <th style="width:110px">笔数<span class="hint">盈 / 亏</span></th>
+          <th style="width:110px">平仓笔数<span class="hint">盈 / 亏</span></th>
           <th style="width:100px">费用</th>
           <th class="lft">当月净收益分布<span class="hint">中间为 0 轴：右伸红=盈利，左伸绿=亏损，长度按当月最大值等比</span></th>
           <th style="width:126px">当月净收益</th>
@@ -246,7 +255,7 @@
         <thead>
           <tr>
             <th class="lft" style="width:168px">方向 / 股票名称</th>
-            <th style="width:128px">成交日期<span class="hint">可修改</span></th>
+            <th style="width:128px">存档 / 结算日期<span class="hint">旧记录按此归月</span></th>
             <th style="width:118px">买入均价 ¥</th>
             <th style="width:118px">卖出均价 ¥</th>
             <th style="width:92px">股数</th>
@@ -487,6 +496,8 @@
         <div class="arcfield">
           <label for="arcDate">成交日期</label>
           <input type="date" id="arcDate">
+          <label for="arcTime">本次清盘时间</label>
+          <input type="time" id="arcTime" step="1">
           <div class="archint">默认今天，事后补录可以改</div>
         </div>
         <div class="arcbox" id="arcPreview"></div>

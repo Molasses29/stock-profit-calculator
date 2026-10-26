@@ -124,6 +124,8 @@ function makeBeta(template, css, js) {
     'downloadRaw("股票收益计算器-测试版_备份_" + stampStr() + ".json"', '备份 JSON 文件名');
   js = subOnce(js, 'download("股票持仓收益_" + todayStr()',
     'download("股票持仓收益-测试版_" + todayStr()', '持仓 CSV 文件名');
+  js = subOnce(js, 'download("股票交易流水_" + todayStr()',
+    'download("股票交易流水-测试版_" + todayStr()', '交易流水 CSV 文件名');
   js = subOnce(js, 'download("已完成交易记录_" + todayStr()',
     'download("已完成交易记录-测试版_" + todayStr()', '已完成记录 CSV 文件名');
   template = subOnce(template, '<title>股票收益计算器（分批建仓 / 分批卖出 / 卖空）</title>',

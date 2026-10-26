@@ -50,12 +50,13 @@
   /* ---------- 汇总卡 ---------- */
   .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
   .card{
+    min-width:0;
     background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
     padding:13px 15px;box-shadow:0 1px 2px rgba(27,36,48,.04);
   }
   .card .k{color:var(--muted);font-size:12.5px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .card .v{font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.2px;}
-  .card .x{font-size:12px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums;}
+  .card .x{font-size:12px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
   .card.hero{background:linear-gradient(180deg,#fff,#fbfdff);}
   .card.hero .v{font-size:24px;}
   .card.side-l{border-left:3px solid var(--long);}
@@ -231,7 +232,7 @@
   tr.detail-row > td{padding:0;background:#f9fbfe;border-bottom:1px solid var(--line);}
   .detail{padding:14px 16px 16px;}
   .lots{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;}
-  .lot-col{flex:1 1 400px;min-width:340px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .lot-col{flex:1 1 660px;min-width:340px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
   .lot-col.opening{border-color:#ddd0ff;}
   .lot-col.closing{border-color:#c9daff;}
   .lot-head{
@@ -242,6 +243,18 @@
   .lot-head .lt{font-size:13px;font-weight:600;color:#5b6678;}
   .lot-head .lt em{font-style:normal;color:var(--muted);font-weight:400;margin-left:6px;font-size:12px;}
   .lot-table{min-width:0;width:100%;}
+  .lot-scroll{overflow-x:auto;}
+  .lot-scroll .lot-table{min-width:660px;}
+  .lot-time-cell{min-width:200px;}
+  .lot-table td.lot-time-cell{text-align:left;}
+  .lot-table input.trade-at{width:190px;}
+  .lot-table input.trade-order{width:58px;}
+  .trade-order-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;margin-top:4px;}
+  .timeline-note{font-size:12px;margin:0 0 12px;text-align:left;}
+  .ledger-table{min-width:1120px;}
+  .ledger-table td{white-space:nowrap;}
+  .ledger-summary{cursor:pointer;font-weight:600;padding:14px 16px;}
+  @media(max-width:640px){.feebar .tip{white-space:normal;min-width:0;max-width:100%;overflow-wrap:anywhere;}}
   .lot-table th,.lot-table td{padding:6px 10px;font-size:13px;}
   .lot-table thead th{background:#fff;border-bottom:1px solid #eef2f8;font-size:12px;}
   .lot-table tbody tr{border-bottom:1px solid #f4f7fb;}

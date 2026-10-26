@@ -908,22 +908,87 @@
      多头：先买后卖 —— 买入 = 建仓，卖出 = 平仓
      空头：先卖后买 —— 卖出 = 开仓，买入 = 平仓（与多头互为镜像）
      ============================================================ */
+  function tradeTime(v) {
+    var s = String(v || "");
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s)) return "";
+    if (s.length === 16) s += ":00";
+    var d = new Date(s + "Z");
+    return isFinite(d.getTime()) && d.toISOString().slice(0, 19) === s ? s : "";
+  }
+  function nowTradeTime() {
+    var d = new Date();
+    return todayStr() + "T" + pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+  }
+  function nextTradeOrder(s) {
+    return s.buys.concat(s.sells).reduce(function (n, l) { return Math.max(n, num(l.order) || 0); }, s.buys.length + s.sells.length) + 1;
+  }
+  function tradeTimeline(s) {
+    var rows = [], sh = isShort(s), missing = 0, error = "";
+    (sh ? ["sell", "buy"] : ["buy", "sell"]).forEach(function (kind) {
+      (kind === "buy" ? s.buys : s.sells).forEach(function (l) {
+        var p = num(l.price), q = num(l.qty);
+        if (!(p > 0 && q > 0)) return;
+        var at = tradeTime(l.at), order = l.order === undefined ? rows.length + 1 : num(l.order);
+        if (!at) { missing++; if (l.at) error = "成交时间无效，请检查日期和时分秒。"; }
+        if (!(order > 0 && Number.isInteger(order))) error = "同刻顺序必须是正整数。";
+        rows.push({ at: at, order: order, kind: kind, price: p, qty: q, amount: r2(p * q), fee: lotFee(p * q, kind === "buy").total });
+      });
+    });
+    var mode = error ? "error" : (!rows.length || missing === rows.length ? "legacy" : missing ? "partial" : "ordered");
+    var out = { mode: mode, error: error, rows: rows, balance: 0, basis: 0, grossBasis: 0, carried: 0, realized: 0, grossRealized: 0 };
+    if (mode !== "ordered") return out;
+    rows.sort(function (a, b) { return a.at.localeCompare(b.at) || a.order - b.order; });
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i], opening = sh ? row.kind === "sell" : row.kind === "buy";
+      if (i && row.at === rows[i - 1].at && row.order === rows[i - 1].order) {
+        out.error = "同一成交时间的顺序重复，请修改「同刻顺序」。"; break;
+      }
+      if (opening) {
+        out.balance += row.qty;
+        out.basis = r2(out.basis + row.amount + (sh ? -row.fee : row.fee));
+        out.grossBasis = r2(out.grossBasis + row.amount);
+      } else {
+        if (row.qty > out.balance + EPS) {
+          out.error = row.at.replace("T", " ") + " 的平仓数量超过当时持仓，后续建仓不能补平更早的卖出 / 买回。"; break;
+        }
+        var cost = qtyEq(row.qty, out.balance) ? out.basis : r2(out.basis * row.qty / out.balance);
+        var grossCost = qtyEq(row.qty, out.balance) ? out.grossBasis : r2(out.grossBasis * row.qty / out.balance);
+        row.cost = cost;
+        row.net = r2(sh ? cost - row.amount - row.fee : row.amount - row.fee - cost);
+        row.gross = r2(sh ? grossCost - row.amount : row.amount - grossCost);
+        out.carried = r2(out.carried + cost);
+        out.realized = r2(out.realized + row.net);
+        out.grossRealized = r2(out.grossRealized + row.gross);
+        out.balance -= row.qty;
+        out.basis = r2(out.basis - cost); out.grossBasis = r2(out.grossBasis - grossCost);
+        if (Math.abs(out.balance) < EPS) { out.balance = 0; out.basis = 0; out.grossBasis = 0; }
+      }
+      row.balance = out.balance; row.basis = out.basis;
+      row.unitCost = out.balance > EPS ? out.basis / out.balance : NaN;
+    }
+    if (out.error) {
+      out.mode = "error";
+      rows.forEach(function (r) { delete r.net; delete r.gross; delete r.cost; delete r.balance; delete r.basis; delete r.unitCost; });
+    }
+    return out;
+  }
   function calcStock(s) {
     var sh = isShort(s);
+    var timeline = tradeTimeline(s);
     var o = { isShort: sh, buyQty: 0, buyAmount: 0, buyFee: 0, buyLots: 0,
                          sellQty: 0, sellAmount: 0, sellFee: 0, sellLots: 0 };
 
     s.buys.forEach(function (l) {
       var p = num(l.price), q = num(l.qty);
       if (!(isFinite(p) && p > 0 && isFinite(q) && q > 0)) return;
-      var amt = p * q;
-      o.buyLots++; o.buyQty += q; o.buyAmount += amt; o.buyFee += lotFee(amt, true).total;
+      var amt = timeline.mode === "ordered" ? r2(p * q) : p * q;
+      o.buyLots++; o.buyQty += q; o.buyAmount += amt; o.buyFee += lotFee(p * q, true).total;
     });
     s.sells.forEach(function (l) {
       var p = num(l.price), q = num(l.qty);
       if (!(isFinite(p) && p > 0 && isFinite(q) && q > 0)) return;
-      var amt = p * q;
-      o.sellLots++; o.sellQty += q; o.sellAmount += amt; o.sellFee += lotFee(amt, false).total;
+      var amt = timeline.mode === "ordered" ? r2(p * q) : p * q;
+      o.sellLots++; o.sellQty += q; o.sellAmount += amt; o.sellFee += lotFee(p * q, false).total;
     });
 
     o.buyAmount = r2(o.buyAmount); o.buyFee = r2(o.buyFee);
@@ -951,6 +1016,14 @@
     } else {
       o.realized = isFinite(o.carriedCost) ? r2(o.sellProceeds - o.carriedCost) : NaN;
     }
+    o.timeline = timeline;
+    if (timeline.mode === "ordered") {
+      o.carriedCost = o.closeQty > 0 ? timeline.carried : NaN;
+      o.realized = o.closeQty > 0 ? timeline.realized : NaN;
+      o.unitCost = timeline.balance > EPS ? timeline.basis / timeline.balance : (sh ? o.avgOpenPrice : o.avgCostPrice);
+    } else if (timeline.error) {
+      o.carriedCost = NaN; o.realized = NaN; o.unitCost = NaN;
+    }
     o.realizedRate = (isFinite(o.carriedCost) && o.carriedCost > 0) ? o.realized / o.carriedCost : NaN;
 
     // 剩余部分：浮动盈亏
@@ -974,6 +1047,7 @@
           o.floatNet = r2(o.marketValue - o.estFee - o.holdBase);
         }
         o.floatRate = o.holdBase > 0 ? o.floatNet / o.holdBase : NaN;
+        if (timeline.mode === "ordered") o.floatGross = r2(sh ? timeline.grossBasis - o.marketValue : o.marketValue - timeline.grossBasis);
       }
     } else {
       o.holdBase = 0;
@@ -984,13 +1058,15 @@
     o.hasTotal = hasR || hasF;
     o.totalRate = o.baseAmount > 0 && o.hasTotal ? o.total / o.baseAmount : NaN;
 
-    o.canArchive = o.buyLots > 0 && o.sellLots > 0 && o.openQty > 0 && qtyEq(o.openQty, o.closeQty);
+    o.canArchive = !timeline.error && o.buyLots > 0 && o.sellLots > 0 && o.openQty > 0 && qtyEq(o.openQty, o.closeQty);
     return o;
   }
 
   /* ================= 持仓表：渲染 ================= */
   function lotRowHtml(kind, lot) {
     return '<tr class="lot-row" data-lot="' + lot.id + '" data-kind="' + kind + '">' +
+      '<td class="lot-time-cell"><input class="f lot trade-at" data-k="at" type="datetime-local" step="1" aria-label="成交时间" value="' + escAttr(tradeTime(lot.at)) + '">' +
+        '<label class="trade-order-label">同刻顺序 <input class="f lot trade-order" data-k="order" type="number" min="1" step="1" aria-label="同刻顺序" value="' + escAttr(lot.order || "") + '"></label></td>' +
       '<td><input class="f lot" data-k="price" type="number" step="0.001" min="0" placeholder="0.00" value="' +
         (lot.price === undefined || lot.price === null ? "" : String(lot.price)) + '"></td>' +
       '<td><input class="f lot" data-k="qty" type="number" step="1" min="0" placeholder="0" value="' +
@@ -1011,7 +1087,7 @@
 
     var body = lots.length
       ? lots.map(function (l) { return lotRowHtml(kind, l); }).join("")
-      : '<tr class="lot-none"><td colspan="5"><div class="lot-empty">还没有' +
+      : '<tr class="lot-none"><td colspan="6"><div class="lot-empty">还没有' +
         (kind === "buy" ? "买入" : "卖出") + "记录</div></td></tr>";
 
     return '<div class="lot-col ' + role + '" data-kind="' + kind + '">' +
@@ -1019,8 +1095,9 @@
         '<div class="lt">' + (kind === "buy" ? "买入明细" : "卖出明细") + '<em>' + roleText + '</em></div>' +
         '<button class="btn sm add-lot" data-kind="' + kind + '">＋ 加一笔</button>' +
       '</div>' +
-      '<table class="lot-table">' +
+      '<div class="lot-scroll"><table class="lot-table">' +
         '<thead><tr>' +
+          '<th style="width:200px">成交时间<span class="hint">同一时刻按顺序号先后计算</span></th>' +
           '<th style="width:106px">' + (kind === "buy" ? "买入价" : "卖出价") + ' ¥</th>' +
           '<th style="width:92px">股数</th>' +
           '<th style="width:118px">金额</th>' +
@@ -1030,12 +1107,13 @@
         '<tbody>' + body + '</tbody>' +
         '<tfoot><tr>' +
           '<td class="lft">合计</td>' +
+          '<td></td>' +
           '<td class="lt-qty">0</td>' +
           '<td class="lt-amt">¥0.00</td>' +
           '<td class="lt-fee">¥0.00</td>' +
           '<td></td>' +
         '</tr></tfoot>' +
-      '</table>' +
+      '</table></div>' +
     '</div>';
   }
 
@@ -1119,6 +1197,7 @@
     var order = isShort(s) ? ["sell", "buy"] : ["buy", "sell"];
     return '<tr class="detail-row" data-for="' + s.id + '"><td colspan="8"><div class="detail">' +
       planBoxHtml(s) +
+      '<p class="timeline-note"></p>' +
       '<div class="lots">' + order.map(function (k) { return lotTableHtml(s, k); }).join("") + '</div>' +
       '<div class="lot-note"></div>' +
     '</div></td></tr>';
@@ -1182,7 +1261,11 @@
     var totalSub = tr.querySelector(".c-total .sub");
 
     /* —— 持仓股数 —— */
-    if (c.buyLots === 0 && c.sellLots === 0) {
+    if (c.timeline.error) {
+      holdEl.textContent = fmtQty(c.remainQty); holdEl.className = "cell-num hold warnc";
+      holdSub.textContent = "⚠ 成交顺序有误"; holdSub.className = "hint sub warnc";
+      holdSub.title = c.timeline.error;
+    } else if (c.buyLots === 0 && c.sellLots === 0) {
       holdEl.textContent = "—"; holdEl.className = "cell-num hold flat";
       holdSub.textContent = "填写" + (sh ? "卖出开仓" : "买入") + "明细";
       holdSub.className = "hint sub";
@@ -1210,6 +1293,7 @@
       var lotN = sh ? c.sellLots : c.buyLots;
       costSub.innerHTML = "均价\u00a0" + price3(sh ? c.avgSellPrice : c.avgBuyPrice) +
         (lotN > 1 ? " · " + lotN + "\u00a0笔" : "");   // 只有多笔才标笔数，避免单笔时白占一行宽度
+      if (c.timeline.mode === "ordered") costSub.textContent = c.remainQty > EPS ? "剩余持仓 · 移动加权成本" : "已清仓 · 历次开仓均价";
     } else {
       costEl.textContent = "—"; costEl.className = "cell-num cost flat";
       costSub.textContent = sh ? "暂无卖出开仓" : "暂无买入";
@@ -1317,6 +1401,11 @@
     if (!s) return;
     var c = calcStock(s);
     var sh = c.isShort;
+    var timelineNote = tr.querySelector(".timeline-note");
+    timelineNote.className = "timeline-note" + (c.timeline.mode !== "ordered" ? " warnc" : "");
+    timelineNote.textContent = c.timeline.error || (c.timeline.mode === "ordered"
+      ? "已按成交时间和同刻顺序，使用移动加权平均法结转成本。清仓后再建仓会重置持仓成本，已实现收益保持不变。"
+      : "未补齐全部有效批次的成交时间，暂按原汇总加权平均口径计算。旧记录不会自动编造成交时间；补齐后启用时间顺序结转。");
 
     /* 计划卡片里的计算行（初始风险 / 建议仓位 / 当前 R）随明细一起刷新 */
     var note = tr.querySelector(".pnote");
@@ -1357,7 +1446,7 @@
       var tbodyEl = col.querySelector("tbody");
       var noneRow = tbodyEl.querySelector("tr.lot-none");
       if (lots.length === 0 && !noneRow) {
-        tbodyEl.innerHTML = '<tr class="lot-none"><td colspan="5"><div class="lot-empty">还没有' +
+        tbodyEl.innerHTML = '<tr class="lot-none"><td colspan="6"><div class="lot-empty">还没有' +
           (isBuy ? "买入" : "卖出") + "记录</div></td></tr>";
       } else if (lots.length > 0 && noneRow) {
         noneRow.remove();
@@ -1404,6 +1493,10 @@
         parts.push("<b class='warnc'>⚠ 卖出股数超过买入股数 " + fmtQty(-c.remainQty) + " 股，请检查明细</b>");
       }
     }
+    if (c.timeline.mode === "ordered") {
+      parts = ["<b>移动加权平均法</b>：按每次平仓当时的成本逐笔结转。", "累计结转 / 释放成本 " + yuan(c.carriedCost),
+        "已实现盈亏 " + money(c.realized, true), "剩余持仓基准 " + yuan(c.holdBase)];
+    } else if (c.timeline.error) parts = ["<b class='warnc'>交易顺序有误，收益暂停计算；请修正成交时间、同刻顺序或股数。</b>"];
     note.innerHTML = parts.join("　·　");
   }
 
@@ -1421,17 +1514,18 @@
       realized: 0, closeQty: 0, carried: 0, baseAmount: 0,
       buyFee: 0, sellFee: 0, estFee: 0, total: 0, noCur: 0,
       /* 已存档（已完成交易）部分 */
-      archNet: 0, archCost: 0, archFees: 0, archN: 0, forcedFees: 0, invalid: 0
+      archNet: 0, archCost: 0, archFees: 0, archN: 0, forcedFees: 0, invalid: 0, pendingTime: 0
     };
     state.stocks.forEach(function (s) {
       var c = calcStock(s);
-      if (c.over) a.invalid++;
+      if (c.over || c.timeline.error) a.invalid++;
+      if (c.timeline.rows.length && (c.timeline.mode === "legacy" || c.timeline.mode === "partial")) a.pendingTime++;
       a.buyFee += c.buyFee; a.sellFee += c.sellFee; a.baseAmount += c.baseAmount;
       if (isFinite(c.realized)) { a.realized += c.realized; a.closeQty += c.closeQty; a.carried += c.carriedCost; }
       if (c.hasTotal) a.total += c.total;
       /* 还有持仓但算不出浮动盈亏（没填当前价）→ 浮动盈亏是不完整的，
          提醒弹窗里要如实说明，避免用户以为数字就是全部 */
-      if (c.remainQty > EPS && !isFinite(c.floatNet)) a.noCur++;
+      if (c.remainQty > EPS && !c.hasCur) a.noCur++;
 
       if (c.isShort) {
         a.sOpenAmount += c.sellAmount;
@@ -1478,6 +1572,7 @@
   function updateSummary() {
     var a = aggregate();
     renderProfitBreakdown(a);
+    renderLedger();
     var bothFloat = r2(a.lFloat + a.sFloat);
 
     var tEl = $("#k-total");
@@ -1489,6 +1584,7 @@
     $("#k-total-sub").textContent = "浮动 " + money(bothFloat, true) + " ＋ 已实现 " + money(a.realAll, true) +
       (a.archN ? "（含已存档 " + a.archN + " 笔 " + money(a.archNet, true) + "）" : "") +
       " ｜ 建仓基数 " + yuan(a.baseAll);
+    if (a.invalid) $("#k-total-sub").textContent += " ｜ 有成交顺序或数量错误，总收益暂不完整";
 
     var fEl = $("#k-float");
     fEl.textContent = money(bothFloat, true);
@@ -1566,10 +1662,45 @@
     $("#profit-est-fees").textContent = yuan(a.estFee);
     $("#profit-note").textContent = complete
       ? "毛收益 − 已发生交易费用 − 预估剩余平仓费 = 扣费净收益。" +
-        (a.forcedFees ? "强制清盘已补扣费用 " + yuan(a.forcedFees) + "，普通交易不会重复扣费。" : "预估费用按各支剩余持仓一次性平仓计算。")
+        (a.forcedFees ? "强制清盘已补扣费用 " + yuan(a.forcedFees) + "，普通交易不会重复扣费。" : "预估费用按各支剩余持仓一次性平仓计算。") +
+        (a.pendingTime ? "有 " + a.pendingTime + " 支持仓未补齐成交时间，已实现与浮动收益仍按原汇总口径分配。" : "")
       : "收益暂不完整：" + (a.noCur ? a.noCur + " 支持仓缺少当前价；" : "") +
-        (a.invalid ? a.invalid + " 支持仓平仓数量超过开仓数量；" : "") + "补齐后显示毛收益与净收益。费用仍显示已知金额。";
+        (a.invalid ? a.invalid + " 支持仓数量或成交顺序有误；" : "") + "补齐后显示毛收益与净收益。费用仍显示已知金额。";
   }
+
+  function ledgerEntries() {
+    var rows = [];
+    function add(log, name, code, scope, dir, mode) {
+      log.forEach(function (r) { rows.push(Object.assign({}, r, { name: name, code: code || "", scope: scope, dir: dir, mode: mode })); });
+    }
+    state.stocks.forEach(function (s) { var t = tradeTimeline(s); add(t.rows, s.name, s.code, "持仓", s.dir, t.mode); });
+    state.hist.forEach(function (h) { add(h.tradeLog || [], h.name, h.code, "已存档", h.dir, h.accounting || "legacy"); });
+    return rows.sort(function (a, b) { return (a.at || "9999").localeCompare(b.at || "9999") || a.order - b.order; });
+  }
+  function renderLedger() {
+    if (!$("#ledger-panel").open) return;
+    var rows = ledgerEntries();
+    $("#ledger-note").textContent = "共 " + rows.length + " 笔。只有时间完整且顺序有效的交易显示逐笔结转结果。旧存档没有逐笔明细时，仅保留原汇总记录；强制清盘流水仅作成交记录，收益以其存档结算为准。";
+    $("#ledger-body").innerHTML = rows.length ? rows.map(function (r) {
+      var known = r.mode === "ordered";
+      return '<tr><td>' + (r.at ? escHtml(r.at.replace("T", " ")) : "未填写") + " / " + r.order + '</td>' +
+        '<td class="lft">' + nameHtml(r.name) + '<span class="hint">' + escHtml(r.code) + " · " + r.scope + " · " + (r.dir === "short" ? "空头" : "多头") + '</span></td>' +
+        '<td>' + (r.kind === "buy" ? "买入" : "卖出") + '</td><td>' + price3(r.price) + '</td><td>' + fmtQty(r.qty) + '</td>' +
+        '<td>' + yuan(r.amount) + '</td><td>' + yuan(r.fee) + '</td><td>' + (known ? fmtQty(num(r.balance)) : "—") + '</td>' +
+        '<td>' + (known ? price3(num(r.unitCost)) : "—") + '</td><td class="' + cls(num(r.net)) + '">' + (known ? money(num(r.net), true) : "—") + '</td></tr>';
+    }).join("") : '<tr class="empty-row"><td colspan="10">暂无逐笔流水。添加持仓批次后即可查看，旧存档汇总保持不变。</td></tr>';
+  }
+  $("#ledger-panel").addEventListener("toggle", renderLedger);
+  $("#export-trades").addEventListener("click", function () {
+    var lines = [["成交时间(交易当地时间)", "同刻顺序", "股票名称", "代码", "状态", "方向", "买卖", "价格", "股数", "成交金额", "费用", "成交后剩余", "成交后含费基准价", "本笔已实现净收益", "计算口径"].join(",")];
+    ledgerEntries().forEach(function (r) {
+      var known = r.mode === "ordered";
+      lines.push([esc(r.at.replace("T", " ")), r.order, esc(r.name), esc(r.code), esc(r.scope), esc(r.dir === "short" ? "空头" : "多头"), esc(r.kind === "buy" ? "买入" : "卖出"),
+        r.price, r.qty, r.amount.toFixed(2), r.fee.toFixed(2), known ? r.balance : "", known && isFinite(num(r.unitCost)) ? num(r.unitCost).toFixed(4) : "",
+        known && isFinite(num(r.net)) ? num(r.net).toFixed(2) : "", esc(known ? "移动加权平均" : "未按时间结转/强制清盘")].join(","));
+    });
+    download("股票交易流水_" + todayStr() + ".csv", lines.join("\r\n"));
+  });
 
   /* ============================================================
      盈亏提醒
@@ -1848,8 +1979,9 @@
   function addLot(stockId, kind, focus) {
     var s = findStock(stockId);
     if (!s) return;
-    if (kind === "buy") s.buys.push({ id: uid("l"), price: "", qty: "" });
-    else s.sells.push({ id: uid("l"), price: "", qty: "" });
+    var lot = { id: uid("l"), price: "", qty: "", at: nowTradeTime(), order: nextTradeOrder(s) };
+    if (kind === "buy") s.buys.push(lot);
+    else s.sells.push(lot);
     if (!s.expanded) s.expanded = true;
     save();
     rerenderDetail(stockId);
@@ -1866,12 +1998,13 @@
 
   function addStock(opt) {
     opt = opt || {};
+    var at = nowTradeTime();
     var s = {
       id: uid("s"), name: opt.name || "", code: opt.code || "", cur: opt.cur || "",
       dir: opt.dir === "short" ? "short" : "long",
       expanded: opt.expanded !== false,
-      buys: [{ id: uid("l"), price: "", qty: "" }],
-      sells: [{ id: uid("l"), price: "", qty: "" }],
+      buys: [{ id: uid("l"), price: "", qty: "", at: at, order: opt.dir === "short" ? 2 : 1 }],
+      sells: [{ id: uid("l"), price: "", qty: "", at: at, order: opt.dir === "short" ? 1 : 2 }],
       plan: Object.assign({}, DEF_PLAN)
     };
     state.stocks.push(s);
@@ -2052,7 +2185,8 @@
     if (lots.length === 0) return s;
     var c = { id: s.id, dir: s.dir, cur: s.cur, buys: s.buys.slice(), sells: s.sells.slice() };
     lots.forEach(function (t, i) {
-      var lot = { id: "__liq" + i + "__", price: String(num(t.price)), qty: String(num(t.qty)) };
+      var lot = { id: "__liq" + i + "__", price: String(num(t.price)), qty: String(num(t.qty)),
+        at: $("#arcDate").value + "T" + $("#arcTime").value, order: nextTradeOrder(s) + i };
       if (isShort(s)) c.buys.push(lot);   // 空头清盘 = 买回
       else c.sells.push(lot);             // 多头清盘 = 卖出
     });
@@ -2115,6 +2249,7 @@
     var sh = isShort(s);
     var label = (s.name || "").trim() || "未命名股票";
     var c = calcStock(s);
+    if (c.timeline.error) { alert(c.timeline.error + "\n请先修正流水再存档。"); return; }
 
     if (!(c.openQty > EPS)) {
       alert(sh ? "「" + label + "」还没有卖出开仓记录，无法存档。"
@@ -2159,6 +2294,7 @@
       renderLiqRows();
     }
     $("#arcDate").value = todayStr();
+    $("#arcTime").value = nowTradeTime().slice(11);
     /* 强制清盘的两个输入框每次都清空：数量本来就可能与记录不符，
        预填会把人锚定在错误的数字上；价格也按"不预填实时价"的既定约定留空 */
     $("#arcForcePrice").value = "";
@@ -2183,7 +2319,7 @@
     if (arcMode() === "force") {
       var ff = forceCalc();
       paintForce();
-      $("#arcOk").disabled = !(ff && ff.filled);
+      $("#arcOk").disabled = !(ff && ff.filled && isFinite(ff.net));
       return;
     }
 
@@ -2224,6 +2360,11 @@
     }
 
     var c = calcStock(arcEffStock(s));
+    if (c.timeline.error) {
+      $("#arcOk").disabled = true;
+      box.className = "arcbox"; box.textContent = c.timeline.error + " 请检查本次清盘的日期和时间。";
+      return;
+    }
     var rows = [];
     if (needLiq) {
       rows.push(kv("清盘 " + fmtQty(st.sumQty) + " 股" + (st.n > 1 ? " · " + st.n + " 笔" : "") +
@@ -2325,6 +2466,14 @@
       ? (sh ? openAvg - price : price - openAvg) : NaN;
     var partClosed = isFinite(spreadClosed) ? r2(spreadClosed * closedQty) : 0;
     var partForce = (filled && isFinite(spread)) ? r2(spread * partQty) : NaN;
+    if (c.timeline.mode === "ordered") {
+      /* 已按时间结转的成交不得再用全周期均价重算。强平仍保留不扣费的旧展示规则。 */
+      partClosed = c.timeline.grossRealized;
+      var remainingAvg = c.remainQty > EPS ? c.timeline.grossBasis / c.remainQty : NaN;
+      spread = sh ? remainingAvg - price : price - remainingAvg;
+      partForce = filled && isFinite(spread) ? r2(spread * partQty) : NaN;
+      spreadClosed = closedQty > EPS ? partClosed / closedQty : NaN;
+    }
     var net = (filled && isFinite(partForce)) ? r2(partClosed + partForce) : NaN;
 
     return { s: s, sh: sh, c: c, price: price, qty: qty, gross: gross, fee: fee,
@@ -2364,6 +2513,9 @@
     var rows = [];
     rows.push(kv(sh ? "开仓卖出（记录）" : "建仓买入（记录）",
       fmtQty(f.openQty) + " 股 · 成交均价 ¥" + pexact(f.openAvg)));
+    if (c.timeline.mode === "ordered") {
+      rows.push(kv("剩余部分成交成本（不含费）", c.remainQty > EPS ? price3(c.timeline.grossBasis / c.remainQty) : "已全部平仓，请使用逐笔清盘直接存档"));
+    }
     if (f.closedQty > EPS) {
       rows.push(kv(sh ? "已买回平仓（记录）" : "已卖出平仓（记录）",
         fmtQty(f.closedQty) + " 股 · 成交均价 ¥" + pexact(f.closedAvg)));
@@ -2385,7 +2537,9 @@
       (f.filled ? cls(f.net) : "flat") + '">' + (f.filled ? money(f.net, true) : "—") + "</span></div>");
     /* 口径与对照说明单独占一行整宽：塞进 .kv 的右列会在窄弹窗里折得很碎 */
     var note = [];
-    if (f.closedQty > EPS) {
+    if (c.timeline.mode === "ordered") {
+      note.push("<b>口径</b>：已了结部分保留按成交顺序结转的毛收益，其余按剩余持仓的成交成本与本次清盘价结算，不追溯改写历史成交。");
+    } else if (f.closedQty > EPS) {
       note.push('<b>口径</b>：已了结的 ' + fmtQty(f.closedQty) + ' 股按记录均价 ¥' +
         pexact(f.closedAvg) + " 算，其余 " + fmtQty(f.partQty) + " 股按本次清盘价 ¥" +
         pexact(f.price) + " 算；两段数量之和 = " + (sh ? "开仓" : "建仓") + "数量 " +
@@ -2431,6 +2585,7 @@
     var s = findStock(arcState.id);
     if (!s) { closeArc(); return; }
     var f = forceCalc();
+    if (f && f.c.timeline.mode === "ordered" && !(f.c.remainQty > EPS)) { alert("这支持仓已按流水全部平仓，请用「逐笔清盘」直接存档，无需再录一笔强制清盘。"); return; }
     if (!f || !f.filled) { alert("请先填好成交价和数量（都要大于 0）。"); return; }
     if (!(f.base > 0)) {
       alert("这支股票没有建仓 / 开仓记录，算不出要结算的金额，无法强制清盘。");
@@ -2438,6 +2593,11 @@
     }
     var sh = f.sh, label = (s.name || "").trim() || "未命名股票";
     var dateStr = $("#arcDate").value || todayStr();
+    if (f.c.timeline.mode === "ordered") {
+      var at = tradeTime(dateStr + "T" + $("#arcTime").value);
+      var last = f.c.timeline.rows[f.c.timeline.rows.length - 1];
+      if (!at || at < last.at) { alert("本次清盘时间不能早于最后一笔已有成交，请检查日期和时间。"); return; }
+    }
     var priceS = priceStr(f.price);
     var need = [ (sh ? "开仓卖出" : "建仓买入") + "：" + fmtQty(f.openQty) + " 股 · 成交均价 ¥" +
         pexact(f.openAvg),
@@ -2454,7 +2614,7 @@
     need.push("");
     need.push("系统记录的剩余是 " + fmtQty(f.c.remainQty) + " 股，本次清盘 " + fmtQty(f.qty) + " 股" +
       (Math.abs(f.diff) > EPS ? "（相差 " + fmtQty(Math.abs(f.diff)) + " 股）" : "") + "。");
-    need.push("盈亏按「价差 × 数量」分两段结算（已了结的按记录均价、其余的按本次清盘价，均不含费）；");
+    need.push(f.c.timeline.mode === "ordered" ? "已了结部分保留流水结转的毛收益；其余按剩余成交成本与本次清盘价结算，均不含费；" : "盈亏按「价差 × 数量」分两段结算（已了结的按记录均价、其余的按本次清盘价，均不含费）；");
     need.push("这支股票原来的中间买卖记录不再单独计算盈亏；");
     need.push("整支股票会移到下方「已完成交易记录」。");
     if (!confirm("强制清盘「" + label + "」\n\n" + need.join("\n"))) return;
@@ -2466,7 +2626,10 @@
     var histBuyAmt = sh ? r2(f.c.buyAmount + f.gross) : f.c.buyAmount;
     var histSellAmt = sh ? f.c.sellAmount : r2(f.c.sellAmount + f.gross);
     state.hist.push({
-      id: uid("h"), date: dateStr, name: s.name || "", dir: s.dir,
+      id: uid("h"), date: dateStr, name: s.name || "", code: s.code || "", dir: s.dir,
+      accounting: "forced", tradeLog: tradeTimeline({ dir: s.dir,
+        buys: s.buys.concat(sh ? [{ price: String(f.price), qty: String(f.qty), at: dateStr + "T" + $("#arcTime").value, order: nextTradeOrder(s) }] : []),
+        sells: s.sells.concat(sh ? [] : [{ price: String(f.price), qty: String(f.qty), at: dateStr + "T" + $("#arcTime").value, order: nextTradeOrder(s) }]) }).rows,
       buy: (histBuyQty > 0 ? histBuyAmt / histBuyQty : f.price).toFixed(4),
       sell: (histSellQty > 0 ? histSellAmt / histSellQty : f.price).toFixed(4),
       qty: String(sh ? histBuyQty : histSellQty),
@@ -2511,6 +2674,7 @@
     if (needLiq && !st.ok) { paintArc(); return; }
 
     var c = calcStock(arcEffStock(s));
+    if (c.timeline.error) { alert(c.timeline.error); return; }
     if (!qtyEq(c.openQty, c.closeQty)) {
       alert("加上清盘数量后仍未完全了结，请检查明细。\n\n开仓 " + fmtQty(c.openQty) +
         " 股 / 平仓 " + fmtQty(c.closeQty) + " 股");
@@ -2519,7 +2683,8 @@
 
     var dateStr = $("#arcDate").value || todayStr();
     state.hist.push({
-      id: uid("h"), date: dateStr, name: s.name || "", dir: s.dir,
+      id: uid("h"), date: dateStr, name: s.name || "", code: s.code || "", dir: s.dir,
+      accounting: c.timeline.mode, tradeLog: c.timeline.rows,
       buy: c.avgBuyPrice.toFixed(4), sell: c.avgSellPrice.toFixed(4), qty: String(c.openQty),
       buyQty: c.buyQty, sellQty: c.sellQty, buyLots: c.buyLots, sellLots: c.sellLots,
       buyAmount: c.buyAmount, sellAmount: c.sellAmount,
@@ -2571,6 +2736,7 @@
       if (!$("#arcOk").disabled) confirmArcForce();
     });
   });
+  ["#arcDate", "#arcTime"].forEach(function (sel) { $(sel).addEventListener("input", paintArc); });
   $("#arcAddLiq").addEventListener("click", function () { arcAddLiq(); });
   $("#arcAutoFill").addEventListener("click", function () {
     if (!arcState) return;
@@ -2737,16 +2903,26 @@
     var box = $("#monthBox"), body = $("#monthBody");
     if (!box || !body || box.hidden) return;   // 收起时不渲染，省得每次刷新都白算
     var byMonth = {}, order = [];
-    state.hist.forEach(function (h) {
-      var m = /^\d{4}-\d{2}/.test(String(h.date || "")) ? String(h.date).slice(0, 7) : "未知";
+    function add(date, net, fees, cost, closed) {
+      var m = /^\d{4}-\d{2}/.test(String(date || "")) ? String(date).slice(0, 7) : "未知";
       if (!byMonth[m]) { byMonth[m] = { n: 0, win: 0, lose: 0, fees: 0, net: 0, cost: 0 }; order.push(m); }
       var o = byMonth[m];
-      o.n++; o.fees += num(h.fees) || 0; o.net += num(h.net) || 0; o.cost += num(h.cost) || 0;
-      if (num(h.net) > 0.0000001) o.win++; else if (num(h.net) < -0.0000001) o.lose++;
+      if (closed) o.n++;
+      o.fees += num(fees) || 0; o.net += num(net) || 0; o.cost += num(cost) || 0;
+      if (num(net) > 0.0000001) o.win++; else if (num(net) < -0.0000001) o.lose++;
+    }
+    function addLog(rows) { rows.forEach(function (r) { add(r.at, r.net, r.fee, r.cost, isFinite(num(r.net))); }); }
+    state.stocks.forEach(function (s) {
+      var t = tradeTimeline(s);
+      if (t.mode === "ordered") addLog(t.rows);
+    });
+    state.hist.forEach(function (h) {
+      if (h.accounting === "ordered" && h.tradeLog.length) addLog(h.tradeLog);
+      else add(h.date, h.net, h.fees, h.cost, true);
     });
     if (order.length === 0) {
       body.innerHTML = '<tr class="empty-row"><td colspan="6"><div class="empty">' +
-        '还没有已存档的交易：了结整支持仓并存档后，这里会按月汇总收益。</div></td></tr>';
+        '还没有可按月统计的交易。补齐持仓成交时间，或存档已了结交易后即可查看。</div></td></tr>';
       return;
     }
     order.sort();                              // YYYY-MM 字典序 = 时间序
@@ -2879,7 +3055,7 @@
         /* 合并恢复只补回缺失项，保留用户之后的新增与修改。 */
         var exists = dest.some(function (x) { return x.id === item.id ||
           (entry.type === "watch" && toQuoteCode(x.code) === toQuoteCode(item.code)); });
-        if (!exists) dest.push(entry.type === "hist" ? normalizeHist(item) : copyData(item));
+        if (!exists) dest.push(entry.type === "hist" ? normalizeHist(item) : entry.type === "stocks" ? normalizeStocks([item], true)[0] : copyData(item));
       });
     }
     state.recovery = state.recovery.filter(function (x) { return x.id !== id; });
@@ -2892,9 +3068,17 @@
     var btn = e.target.closest("button[data-recovery]");
     if (btn) restoreRecovery(btn.dataset.recovery);
   });
+  function normalizeTradeLog(list) {
+    return (Array.isArray(list) ? list : []).filter(function (r) { return r && (r.kind === "buy" || r.kind === "sell") && num(r.price) > 0 && num(r.qty) > 0; }).map(function (r, i) {
+      var out = { kind: r.kind, at: tradeTime(r.at), order: num(r.order) > 0 ? num(r.order) : i + 1 };
+      ["price", "qty", "amount", "fee", "cost", "net", "gross", "balance", "basis", "unitCost"].forEach(function (k) { out[k] = num(r[k]); });
+      return out;
+    });
+  }
   function normalizeHist(h) {
     return {
-      id: uid("h"), date: h.date || todayStr(), name: h.name || "", dir: h.dir === "short" ? "short" : "long",
+      id: uid("h"), date: h.date || todayStr(), name: h.name || "", code: String(h.code || ""), dir: h.dir === "short" ? "short" : "long",
+      accounting: h.accounting === "ordered" ? "ordered" : h.forced ? "forced" : "legacy", tradeLog: normalizeTradeLog(h.tradeLog),
       buy: h.buy || "", sell: h.sell || "", qty: h.qty || "",
       buyQty: num(h.buyQty), sellQty: num(h.sellQty),
       buyLots: num(h.buyLots) || 1, sellLots: num(h.sellLots) || 1,
@@ -2911,9 +3095,10 @@
       minCommAtSave: num(h.minCommAtSave) || 0
     };
   }
-  function mkLots(list) {
-    return (Array.isArray(list) ? list : []).map(function (l) {
-      return { id: uid("l"), price: l.price === undefined ? "" : l.price, qty: l.qty === undefined ? "" : l.qty };
+  function mkLots(list, offset) {
+    return (Array.isArray(list) ? list : []).map(function (l, i) {
+      return { id: uid("l"), price: l.price === undefined ? "" : l.price, qty: l.qty === undefined ? "" : l.qty,
+        at: String(l.at || ""), order: l.order === undefined ? (offset || 0) + i + 1 : l.order };
     });
   }
   function normalizeWatch(arr) {
@@ -2959,7 +3144,9 @@
         dir: s.dir === "short" ? "short" : "long",
         sec: String(s.sec || "").trim(),
         plan: normalizePlan(s.plan),
-        expanded: !!s.expanded, buys: mkLots(s.buys), sells: mkLots(s.sells)
+        expanded: !!s.expanded,
+        buys: mkLots(s.buys, s.dir === "short" && Array.isArray(s.sells) ? s.sells.length : 0),
+        sells: mkLots(s.sells, s.dir !== "short" && Array.isArray(s.buys) ? s.buys.length : 0)
       };
     });
   }
@@ -3086,7 +3273,7 @@
     return {
       app: "股票收益计算器",
       schema: "stock-pl-calculator",
-      version: 4,
+      version: 5,
       exportedAt: new Date().toISOString(),
       fees: state.fees,
       settings: state.settings,
@@ -3107,7 +3294,8 @@
   /* 记录指纹：合并导入时用来判断"这笔是不是已经有了" */
   function hFingerprint(h) {
     return [h.date || "", String(h.name || "").trim(), h.dir === "short" ? "S" : "L",
-      num(h.buy).toFixed(4), num(h.sell).toFixed(4), num(h.qty), num(h.net).toFixed(2)].join("|");
+      num(h.buy).toFixed(4), num(h.sell).toFixed(4), num(h.qty), num(h.net).toFixed(2),
+      (h.tradeLog || []).map(function (r) { return [r.at, r.order, r.kind, r.price, r.qty].join(":"); }).join(";")].join("|");
   }
 
   /* 解析并校验备份对象；失败时抛出可读错误 */
