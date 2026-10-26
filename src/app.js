@@ -45,7 +45,7 @@
   ];
 
   var state = { fees: Object.assign({}, DEF_FEES), settings: Object.assign({}, DEF_SETTINGS),
-                stocks: [], hist: [], lastBackupAt: "", comm: { updatedAt: "", q: {} },
+                stocks: [], hist: [], recovery: [], lastBackupAt: "", comm: { updatedAt: "", q: {} },
                 watch: [],
                 /* K线缓存（行情快照，同 state.comm，故意不进备份 JSON） */
                 kline: { updatedAt: "", d: {} },
@@ -56,8 +56,6 @@
   /* 深拷一层，避免 settings.alert / settings.kline 与默认对象共用同一个引用 */
   state.settings.alert = normalizeAlert(state.settings.alert);
   state.settings.kline = normalizeKlineAlert(state.settings.kline);
-  /* 深拷一层，避免 settings.alert 与 DEF_ALERT 共用同一个对象 */
-  state.settings.alert = normalizeAlert(state.settings.alert);
   var seq = 0;
   var uid = function (p) { return (p || "x") + (++seq) + Date.now().toString(36); };
 
@@ -71,6 +69,14 @@
     if (s === "" || s === "-") return NaN;
     var n = Number(s);
     return isFinite(n) ? n : NaN;
+  }
+  function normalizeFees(fees) {
+    var out = {};
+    Object.keys(DEF_FEES).forEach(function (k) {
+      var v = num(fees && fees[k]);
+      out[k] = isFinite(v) && v >= 0 ? v : DEF_FEES[k];
+    });
+    return out;
   }
   function money(n, withSign) {
     if (!isFinite(n)) return "—";
@@ -726,6 +732,7 @@
   }
 
   function removeWatch(id) {
+    if (!rememberRemoval("watch", state.watch.filter(function (w) { return w.id === id; }), "移除观察股")) return;
     state.watch = state.watch.filter(function (w) { return w.id !== id; });
     save();
     renderWatchPanel();
@@ -1414,10 +1421,11 @@
       realized: 0, closeQty: 0, carried: 0, baseAmount: 0,
       buyFee: 0, sellFee: 0, estFee: 0, total: 0, noCur: 0,
       /* 已存档（已完成交易）部分 */
-      archNet: 0, archCost: 0, archFees: 0, archN: 0
+      archNet: 0, archCost: 0, archFees: 0, archN: 0, forcedFees: 0, invalid: 0
     };
     state.stocks.forEach(function (s) {
       var c = calcStock(s);
+      if (c.over) a.invalid++;
       a.buyFee += c.buyFee; a.sellFee += c.sellFee; a.baseAmount += c.baseAmount;
       if (isFinite(c.realized)) { a.realized += c.realized; a.closeQty += c.closeQty; a.carried += c.carriedCost; }
       if (c.hasTotal) a.total += c.total;
@@ -1452,6 +1460,7 @@
       if (isFinite(net)) { a.archNet += net; a.archN++; }
       if (isFinite(cost)) a.archCost += cost;
       if (isFinite(fee)) a.archFees += fee;
+      if (h.forced && isFinite(fee)) a.forcedFees += fee;
     });
 
     ["lCost", "lValue", "lFloat", "sOpenAmount", "sValue", "sFloat", "realized", "carried",
@@ -1468,6 +1477,7 @@
 
   function updateSummary() {
     var a = aggregate();
+    renderProfitBreakdown(a);
     var bothFloat = r2(a.lFloat + a.sFloat);
 
     var tEl = $("#k-total");
@@ -1537,6 +1547,28 @@
     tt.textContent = money(a.total, true); tt.className = cls(a.total);
 
     renderHistSum(a);
+  }
+
+  function histProfit(h) {
+    var fee = num(h.fees) || 0, book = num(h.net) || 0;
+    return { gross: r2(book + (h.forced ? 0 : fee)), net: r2(book - (h.forced ? fee : 0)) };
+  }
+  function renderProfitBreakdown(a) {
+    /* 普通记账已扣费，强平记账未扣费：只补扣强平费用，不能重复扣普通费用。 */
+    var net = r2(a.totalAll - a.forcedFees);
+    var complete = !a.noCur && !a.invalid;
+    var gross = complete ? r2(net + a.feeAll + a.estFee) : NaN;
+    [["gross", gross], ["net", complete ? net : NaN]].forEach(function (pair) {
+      var el = $("#profit-" + pair[0]);
+      el.textContent = money(pair[1], true); el.className = cls(pair[1]);
+    });
+    $("#profit-fees").textContent = yuan(a.feeAll);
+    $("#profit-est-fees").textContent = yuan(a.estFee);
+    $("#profit-note").textContent = complete
+      ? "毛收益 − 已发生交易费用 − 预估剩余平仓费 = 扣费净收益。" +
+        (a.forcedFees ? "强制清盘已补扣费用 " + yuan(a.forcedFees) + "，普通交易不会重复扣费。" : "预估费用按各支剩余持仓一次性平仓计算。")
+      : "收益暂不完整：" + (a.noCur ? a.noCur + " 支持仓缺少当前价；" : "") +
+        (a.invalid ? a.invalid + " 支持仓平仓数量超过开仓数量；" : "") + "补齐后显示毛收益与净收益。费用仍显示已知金额。";
   }
 
   /* ============================================================
@@ -1885,6 +1917,7 @@
         if (!confirm("删除这笔" + (kind === "buy" ? "买入" : "卖出") + "记录？\n\n" +
           (isFinite(p) ? "价格 ¥" + nf.format(p) + "　" : "") + (isFinite(q) ? "股数 " + fmtQty(q) : ""))) return;
       }
+      if (target && !rememberRemoval("lot", [target], "删除" + (kind === "buy" ? "买入" : "卖出") + "批次", { stockId: st.id, kind: kind })) return;
       st[kind === "buy" ? "buys" : "sells"] = lots.filter(function (x) { return x.id !== ltr.dataset.lot; });
       save();
       rerenderDetail(st.id);
@@ -1900,7 +1933,8 @@
       if (!s2) return;
       var c2 = calcStock(s2);
       if (!confirm("删除「" + (s2.name || "未命名股票") + "」（" + dirName(s2) + "）及其全部批次明细？\n\n" +
-        "买入 " + c2.buyLots + " 笔 / 卖出 " + c2.sellLots + " 笔\n此操作不可撤销。")) return;
+        "买入 " + c2.buyLots + " 笔 / 卖出 " + c2.sellLots + " 笔\n删除后可在「误删恢复」中找回。")) return;
+      if (!rememberRemoval("stocks", [s2], "删除持仓「" + (s2.name || "未命名") + "」")) return;
       state.stocks = state.stocks.filter(function (x) { return x.id !== row.dataset.id; });
       save();
       renderTable();
@@ -2593,6 +2627,7 @@
   function lotsHint(n) { return (n > 1) ? '<span class="hint">' + n + ' 笔均价</span>' : ""; }
 
   function histRowHtml(h) {
+    var split = histProfit(h);
     var tag = h.forced
       ? '<span class="ftag" title="强制清盘：按实际成交的价格与数量一次性结清，盈亏 = 各段价差 × 数量（已了结的按记录均价、其余按清盘价），不扣费用">强制清盘</span>'
       : "";
@@ -2605,7 +2640,8 @@
       '<td class="fee" data-tip="buy">¥' + nf.format(h.buyFee) + '</td>' +
       '<td class="fee" data-tip="sell">¥' + nf.format(h.sellFee) + '</td>' +
       '<td>¥' + nf.format(h.fees) + '</td>' +
-      '<td><span class="cell-num net ' + cls(h.net) + '">' + money(h.net, true) + '</span></td>' +
+      '<td><span class="cell-num net ' + cls(h.net) + '">' + money(h.net, true) + '</span>' +
+        '<span class="profit-detail">毛 ' + money(split.gross, true) + ' · 净 ' + money(split.net, true) + '</span></td>' +
       '<td><span class="cell-num rate ' + cls(h.net) + '">' + pct(h.rate) + '</span></td>' +
       '<td><button class="ico del" title="删除这条记录">✕</button></td>' +
     '</tr>';
@@ -2627,7 +2663,7 @@
         tr.querySelector('[data-tip="sell"]').title = "存档时卖出佣金 " + h.commSellAtSave + "% + 印花税 " + h.stampAtSave + "% + 过户费 " + h.transferAtSave + "%" + mc;
       });
     }
-    renderHistSum();
+    updateSummary();
   }
 
   hbody.addEventListener("change", function (e) {
@@ -2649,7 +2685,8 @@
     for (var i = 0; i < state.hist.length; i++) { if (state.hist[i].id === tr.dataset.id) { h = state.hist[i]; break; } }
     if (!h) return;
     if (!confirm("删除这条记录？\n\n[" + (h.dir === "short" ? "空" : "多") + "] " + (h.name || "未命名") +
-      "　" + (h.date || "") + "\n已实现盈亏 " + money(h.net, true) + "\n\n删除后累计收益会同步减少，且不可恢复。")) return;
+      "　" + (h.date || "") + "\n已实现盈亏 " + money(h.net, true) + "\n\n删除后累计收益会同步减少，可在「误删恢复」中找回。")) return;
+    if (!rememberRemoval("hist", [h], "删除交易记录「" + (h.name || "未命名") + "」")) return;
     state.hist = state.hist.filter(function (x) { return x.id !== h.id; });
     save();
     renderHist();
@@ -2767,8 +2804,94 @@
 
   /* ================= 存储 ================= */
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 隐私模式忽略 */ }
+    renderRecovery();
+    var warning = $("#save-warning");
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+      warning.hidden = true;
+      return true;
+    } catch (e) {
+      warning.hidden = false;
+      warning.textContent = "本地保存失败，可能是存储空间不足或浏览器限制。请先导出 JSON 备份；未保存的改动和恢复记录在关闭页面后可能丢失。";
+      return false;
+    }
   }
+  function copyData(value) { return JSON.parse(JSON.stringify(value)); }
+  function rememberRecovery(type, label, data) {
+    var previous = state.recovery;
+    state.recovery = [{ id: uid("r"), at: new Date().toISOString(), type: type, label: label, data: copyData(data) }].concat(previous).slice(0, 10);
+    /* 先保存恢复点，失败则由调用方取消删除或覆盖。 */
+    if (!save()) {
+      state.recovery = previous;
+      renderRecovery();
+      alert("无法保存恢复点，本次操作已取消。请先导出 JSON 备份，并检查浏览器的本地存储空间。");
+      return false;
+    }
+    return true;
+  }
+  function rememberRemoval(type, items, label, extra) {
+    if (!items.length) return true;
+    return rememberRecovery(type, label, Object.assign({ items: items }, extra || {}));
+  }
+  function userSnapshot() {
+    return { stocks: state.stocks, hist: state.hist, watch: state.watch,
+      fees: state.fees, settings: state.settings, alertState: state.alertState, lastBackupAt: state.lastBackupAt };
+  }
+  function renderRecovery() {
+    var list = $("#recovery-list");
+    $("#recovery-count").textContent = state.recovery.length;
+    list.textContent = "";
+    if (!state.recovery.length) { list.textContent = "暂无需要恢复的操作。"; return; }
+    state.recovery.forEach(function (entry) {
+      var row = document.createElement("div"), text = document.createElement("span"), btn = document.createElement("button");
+      row.className = "recovery-item";
+      text.textContent = prettyTime(entry.at) + " · " + entry.label;
+      btn.type = "button"; btn.className = "btn sm"; btn.textContent = "恢复";
+      btn.dataset.recovery = entry.id;
+      row.appendChild(text); row.appendChild(btn); list.appendChild(row);
+    });
+  }
+  function restoreRecovery(id) {
+    var entry = state.recovery.find(function (x) { return x.id === id; });
+    if (!entry) return;
+    var data = entry.data;
+    if (entry.type === "replace") {
+      if (!confirm("恢复覆盖导入前的数据？\n\n这会替换当前全部持仓、交易记录、观察池、费率与设置。当前数据也会自动保存为一个恢复点。")) return;
+      if (!rememberRecovery("replace", "恢复前的完整数据", userSnapshot())) return;
+      state.stocks = normalizeStocks(data.stocks, true);
+      state.hist = data.hist.map(normalizeHist);
+      state.watch = normalizeWatch(data.watch);
+      state.fees = normalizeFees(data.fees);
+      state.settings = Object.assign({}, DEF_SETTINGS, copyData(data.settings));
+      state.settings.alert = normalizeAlert(state.settings.alert);
+      state.settings.kline = normalizeKlineAlert(state.settings.kline);
+      state.alertState = copyData(data.alertState);
+      state.lastBackupAt = data.lastBackupAt || "";
+    } else {
+      var dest;
+      if (entry.type === "lot") {
+        var stock = findStock(data.stockId);
+        if (!stock) { alert("对应持仓已不存在，请先恢复这支持仓，再恢复批次。可先恢复覆盖导入前的数据，或从 JSON 备份找回。"); return; }
+        dest = data.kind === "buy" ? stock.buys : stock.sells;
+      } else dest = state[entry.type];
+      if (!Array.isArray(dest) || !Array.isArray(data.items)) return;
+      data.items.forEach(function (item) {
+        /* 合并恢复只补回缺失项，保留用户之后的新增与修改。 */
+        var exists = dest.some(function (x) { return x.id === item.id ||
+          (entry.type === "watch" && toQuoteCode(x.code) === toQuoteCode(item.code)); });
+        if (!exists) dest.push(entry.type === "hist" ? normalizeHist(item) : copyData(item));
+      });
+    }
+    state.recovery = state.recovery.filter(function (x) { return x.id !== id; });
+    save();
+    paintFees(); paintSettings(); paintAlertSettings(); paintKlineSettings();
+    renderTable(); renderHist(); renderWatchPanel();
+    paintBackupStatus("已恢复：" + entry.label, "ok");
+  }
+  $("#recovery-list").addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-recovery]");
+    if (btn) restoreRecovery(btn.dataset.recovery);
+  });
   function normalizeHist(h) {
     return {
       id: uid("h"), date: h.date || todayStr(), name: h.name || "", dir: h.dir === "short" ? "short" : "long",
@@ -2821,10 +2944,18 @@
     };
   }
   function planOf(s) { return normalizePlan(s && s.plan); }
-  function normalizeStocks(arr) {
+  function normalizeStocks(arr, preserveIds) {
+    var seen = new Set();
     return arr.map(function (s) {
+      /* 本地重载保留 ID，让按持仓 ID 保存的提醒闩锁继续生效。
+         导入使用新 ID；旧数据缺失、重复或不适合 DOM 选择器的 ID 自动补齐。 */
+      var id = preserveIds && typeof s.id === "string" && /^[a-zA-Z0-9_-]+$/.test(s.id) ? s.id : "";
+      if (!id || seen.has(id)) {
+        do { id = uid("s"); } while (seen.has(id));
+      }
+      seen.add(id);
       return {
-        id: uid("s"), name: s.name || "", code: s.code || "", cur: s.cur || "",
+        id: id, name: s.name || "", code: s.code || "", cur: s.cur || "",
         dir: s.dir === "short" ? "short" : "long",
         sec: String(s.sec || "").trim(),
         plan: normalizePlan(s.plan),
@@ -2840,7 +2971,11 @@
       if (raw) {
         var d = JSON.parse(raw);
         if (!d || !Array.isArray(d.stocks)) return false;
-        state.fees = Object.assign({}, DEF_FEES, d.fees || {});
+        state.recovery = Array.isArray(d.recovery) ? d.recovery.filter(function (x) {
+          return x && typeof x.id === "string" && typeof x.label === "string" && x.data &&
+            ["stocks", "hist", "watch", "lot", "replace"].indexOf(x.type) >= 0;
+        }).slice(0, 10) : [];
+        state.fees = normalizeFees(d.fees);
         state.settings = Object.assign({}, DEF_SETTINGS, d.settings || {});
         state.settings.alert = normalizeAlert(state.settings.alert);
         state.settings.kline = normalizeKlineAlert(state.settings.kline);
@@ -2849,7 +2984,7 @@
         state.alertState = { p: !!da.p, l: !!da.l, pm: normLatchMap(da.pm),
           k: { low: normLatchMap(da.k && da.k.low), high: normLatchMap(da.k && da.k.high) } };
         state.lastBackupAt = d.lastBackupAt || "";
-        state.stocks = normalizeStocks(d.stocks);
+        state.stocks = normalizeStocks(d.stocks, true);
         state.hist = Array.isArray(d.hist) ? d.hist.map(normalizeHist) : [];
         /* 侧栏商品只缓存最近一次取到的价格（属于行情快照，不进备份 JSON） */
         var dc = d.comm && typeof d.comm === "object" ? d.comm : null;
@@ -2871,7 +3006,7 @@
         var old = localStorage.getItem(KEY_OLD[i]);
         if (!old) continue;
         var o = JSON.parse(old);
-        state.fees = Object.assign({}, DEF_FEES, o.fees || {});
+        state.fees = normalizeFees(o.fees);
         state.settings = Object.assign({}, DEF_SETTINGS);
         state.lastBackupAt = "";
         state.hist = Array.isArray(o.hist) ? o.hist.map(normalizeHist) : [];
@@ -2991,7 +3126,7 @@
       stocks: rawStocks ? normalizeStocks(rawStocks) : null,
       hist: hist,
       watch: rawWatch,
-      fees: obj.fees ? Object.assign({}, DEF_FEES, obj.fees) : null,
+      fees: obj.fees ? normalizeFees(obj.fees) : null,
       settings: obj.settings ? Object.assign({}, DEF_SETTINGS, obj.settings) : null,
       meta: {
         app: obj.app || "",
@@ -3104,7 +3239,8 @@
         "覆盖后：\n· 持仓 " + inc.stocks.length + " 支（当前 " + state.stocks.length + " 支）\n" +
         "· 已完成记录 " + inc.hist.length + " 笔（当前 " + state.hist.length + " 笔）\n" +
         "· 费率与设置也会被备份里的值替换\n\n" +
-        "当前数据将被替换且无法撤销。建议先点「导出备份 JSON」存一份现有数据。")) return;
+        "覆盖前会自动保存恢复点，可从「误删恢复」找回。仍建议导出 JSON 留作长期备份。")) return;
+      if (!rememberRecovery("replace", "覆盖导入前的完整数据", userSnapshot())) return;
       state.stocks = inc.stocks;
       state.hist = inc.hist;
       if (inc.fees) state.fees = inc.fees;
@@ -3203,6 +3339,12 @@
         esc("已存档交易费用"), esc(r2(arch.fee).toFixed(2))].join(","));
       lines.push([esc("全部总收益（与界面顶部「总收益」一致）"), esc(r2(sum.t + arch.net).toFixed(2))].join(","));
     }
+    var all = aggregate(), complete = !all.noCur && !all.invalid;
+    var netAll = r2(all.totalAll - all.forcedFees);
+    lines.push([esc("【收益拆分】"), esc("含已存档；强制清盘统一补扣费用；缺价或超卖时毛/净收益留空")].join(","));
+    lines.push([esc("毛收益"), complete ? r2(netAll + all.feeAll + all.estFee).toFixed(2) : "",
+      esc("已发生费用"), all.feeAll.toFixed(2), esc("预估剩余平仓费"), all.estFee.toFixed(2),
+      esc("扣费净收益"), complete ? netAll.toFixed(2) : ""].join(","));
     lines = lines.concat(feeParamsLines());
     download("股票持仓收益_" + todayStr() + ".csv", lines.join("\r\n"));
   });
@@ -3218,11 +3360,13 @@
   $("#export-hist").addEventListener("click", function () {
     if (state.hist.length === 0) { alert("还没有已完成的交易记录可导出。"); return; }
     var head = ["成交日期", "方向", "股票名称", "开仓笔数", "平仓笔数", "买入均价", "卖出均价", "股数",
-                "买入金额", "卖出金额", "买入费用", "卖出费用", "费用合计", "结转/释放成本", "已实现盈亏", "收益率(%)", "备注"];
+                "买入金额", "卖出金额", "买入费用", "卖出费用", "费用合计", "结转/释放成本", "已实现盈亏(记账口径)", "收益率(记账口径%)", "备注", "毛收益", "扣费净收益"];
     var lines = [head.join(",")];
-    var s = { bf: 0, sf: 0, cost: 0, net: 0 };
+    var s = { bf: 0, sf: 0, cost: 0, net: 0, gross: 0, afterFees: 0 };
 
     sortedHist().forEach(function (h) {
+      var split = histProfit(h);
+      s.gross += split.gross; s.afterFees += split.net;
       s.bf += h.buyFee; s.sf += h.sellFee; s.cost += h.cost; s.net += h.net;
       lines.push([esc(h.date), esc(h.dir === "short" ? "空头" : "多头"), esc(h.name),
         h.dir === "short" ? h.sellLots : h.buyLots, h.dir === "short" ? h.buyLots : h.sellLots,
@@ -3231,12 +3375,14 @@
         h.buyFee.toFixed(2), h.sellFee.toFixed(2), h.fees.toFixed(2),
         h.cost.toFixed(2), h.net.toFixed(2),
         isFinite(h.rate) ? (h.rate * 100).toFixed(2) : "",
-        esc(h.forced ? "强制清盘（盈亏按各段价差 × 数量）" : "")].join(","));
+        esc(h.forced ? "强制清盘（原记账盈亏不扣费，扣费净收益已扣费）" : ""),
+        split.gross.toFixed(2), split.net.toFixed(2)].join(","));
     });
 
     lines.push([esc("合计 " + state.hist.length + " 笔"), "", "", "", "", "", "", "",
       "", "", s.bf.toFixed(2), s.sf.toFixed(2), (s.bf + s.sf).toFixed(2), s.cost.toFixed(2),
-      s.net.toFixed(2), s.cost > 0 ? (s.net / s.cost * 100).toFixed(2) : "", ""].join(","));
+      s.net.toFixed(2), s.cost > 0 ? (s.net / s.cost * 100).toFixed(2) : "", "",
+      r2(s.gross).toFixed(2), r2(s.afterFees).toFixed(2)].join(","));
     lines = lines.concat(feeParamsLines());
     lines.push([esc("说明"), esc("盈亏按存档当时的费率锁定，后续改费率不改变历史记录")].join(","));
     if (state.hist.some(function (h) { return h.forced; })) {
@@ -3261,7 +3407,8 @@
 
   $("#reset").addEventListener("click", function () {
     if (state.stocks.length === 0) { alert("持仓表已经是空的。"); return; }
-    if (!confirm("确定要清空持仓表吗？（已完成交易记录不受影响）\n\n此操作不可撤销。")) return;
+    if (!confirm("确定要清空持仓表吗？（已完成交易记录不受影响）\n\n清空后可在「误删恢复」中找回。")) return;
+    if (!rememberRemoval("stocks", state.stocks, "清空持仓")) return;
     state.stocks = [];
     save();
     renderTable();
@@ -3281,7 +3428,8 @@
     var total = 0;
     state.hist.forEach(function (h) { total += h.net; });
     if (!confirm("确定要删除全部 " + state.hist.length + " 条已完成记录吗？\n\n当前累计已实现收益 " +
-      money(total, true) + "\n\n删除后无法恢复。")) return;
+      money(total, true) + "\n\n清空后可在「误删恢复」中找回。")) return;
+    if (!rememberRemoval("hist", state.hist, "清空交易记录")) return;
     state.hist = [];
     save();
     renderHist();
@@ -3308,6 +3456,7 @@
     paintFees();
     paintAlertSettings();
     paintKlineSettings();
+    renderRecovery();
     renderTable();
     renderHist();
     renderCommodities();

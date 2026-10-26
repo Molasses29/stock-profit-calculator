@@ -76,6 +76,8 @@ function loadPage(seed, opt) {
     url: 'http://localhost/',
     pretendToBeVisual: true,
     beforeParse(window) {
+      /* jsdom 不提供浏览器的编码 API，行情解析需要真实的 GBK 解码器。 */
+      window.TextDecoder = TextDecoder;
       window.__alerts = [];
       window.__confirms = [];
       window.__errs = [];
@@ -98,6 +100,13 @@ function loadPage(seed, opt) {
         };
       }
       if (seed) window.localStorage.setItem(KEY, seed);
+      if (opt.storageFailure) window.Storage.prototype.setItem = function () { throw new window.DOMException('Quota exceeded', 'QuotaExceededError'); };
+      if (opt.downloadCapture) {
+        window.__downloads = [];
+        window.URL.createObjectURL = blob => { window.__downloads.push(blob); return 'blob:test'; };
+        window.URL.revokeObjectURL = function () {};
+        window.HTMLAnchorElement.prototype.click = function () {};
+      }
     }
   });
 }
@@ -636,4 +645,174 @@ function posStep() {
   }, 300);
 }
 
+/* 重载、导入都必须经过真实页面入口，防止只测归一化函数而漏掉接线。 */
+function persistenceStep() {
+  section('9. 重载提醒去重与费率校验');
+  const stock = Object.assign(mk('long', [[10, 100]], []), {
+    cur: '8', plan: { stop: '9' }
+  });
+  const seed = JSON.stringify({ stocks: [stock], hist: [], fees: F });
+  const first = loadPage(seed);
+  check('9.1 首次跌破止损提醒一次', first.window.__alerts.length, 1);
+  const saved = first.window.localStorage.getItem(KEY);
+  check('9.2 本地重载保留持仓 ID', JSON.parse(saved).stocks[0].id, stock.id);
+  const reloaded = loadPage(saved);
+  check('9.3 重开页面仍在止损线外不重复提醒', reloaded.window.__alerts.length, 0);
+  const input = reloaded.window.document.querySelector('.curtd .cur');
+  for (const value of ['10', '8']) {
+    input.value = value;
+    input.dispatchEvent(new reloaded.window.Event('input', { bubbles: true }));
+    input.dispatchEvent(new reloaded.window.Event('change', { bubbles: true }));
+  }
+  check('9.4 重载后回到线内再越线可以重新提醒', reloaded.window.__alerts.length, 1);
+  first.window.close();
+  reloaded.window.close();
+
+  const ids = loadPage(JSON.stringify({ stocks: [
+    stock, { ...stock }, { ...stock, id: '' }, { ...stock, id: 'bad"id' }
+  ], hist: [] }));
+  const rows = [...ids.window.document.querySelectorAll('tr.stock-row')];
+  check('9.5 缺失、重复和异常 ID 不影响显示全部持仓', rows.length, 4);
+  check('9.6 自动修复后的 ID 互不重复', new Set(rows.map(r => r.dataset.id)).size, 4);
+  ok('9.7 自动修复后的 ID 可安全用于选择器', rows.every(r => /^[a-zA-Z0-9_-]+$/.test(r.dataset.id)));
+  ids.window.close();
+
+  const badFees = { commBuy: '-1', commSell: 'invalid', stamp: null, transfer: 'Infinity', minComm: -5 };
+  const feesPage = loadPage(JSON.stringify({ stocks: [mk('long', [[10, 100]], [[11, 100]])],
+    hist: [], fees: badFees }));
+  const d = feesPage.window.document;
+  for (const k of Object.keys(F)) {
+    check('9.8 本地异常费率恢复默认 ' + k, Number(d.querySelector('#f-' + k).value), F[k]);
+  }
+  check('9.9 修复费率后已实现收益正确', money2num(d.querySelector('#k-real').textContent), 99.24);
+  d.querySelector('#import-json').click();
+  d.querySelector('#impText').value = JSON.stringify({ stocks: [stock], hist: [],
+    fees: { ...badFees, commBuy: '0.025', minComm: '5' } });
+  d.querySelector('#impParse').click();
+  d.querySelector('#impReplace').click();
+  check('9.10 导入保留有效小数费率', d.querySelector('#f-commBuy').value, '0.025');
+  check('9.11 导入保留有效最低佣金', Number(d.querySelector('#f-minComm').value), 5);
+  check('9.12 导入异常费率恢复默认', Number(d.querySelector('#f-commSell').value), F.commSell);
+  ok('9.13 重新导入持仓不沿用原提醒 ID', d.querySelector('tr.stock-row').dataset.id !== stock.id);
+  ok('9.14 回归场景无运行时错误', feesPage.window.__errs.length === 0, feesPage.window.__errs.join('|'));
+  feesPage.window.close();
+}
+
+async function profitRecoveryStep() {
+  section('10. 收益拆分与误删恢复');
+  const makePage = (stocks = [], hist = [], fees = F, extra = {}, opt = {}) => loadPage(JSON.stringify({
+    stocks, hist, fees, settings: { auto: false, alert: { plan: false } }, ...extra
+  }), opt);
+  const value = (dom, id) => money2num(dom.window.document.querySelector(id).textContent);
+  const snapshot = dom => JSON.parse(dom.window.localStorage.getItem(KEY));
+  const restore = (dom, index = 0) => dom.window.document.querySelectorAll('[data-recovery]')[index].click();
+  const stock = Object.assign(mk('long', [[10, 100]], [[12, 40]]), { cur: '11', name: '保留的持仓', expanded: true });
+  const archived = [
+    { id: 'hn', name: '普通', net: 99, fees: 1, cost: 1000, date: '2026-10-25' },
+    { id: 'hf', name: '强平', net: 100, fees: 2, forced: true, cost: 1000, date: '2026-10-26' }
+  ];
+  const p = makePage([stock], archived, F, {}, { downloadCapture: true });
+  // 价差：已卖 40×2 + 剩余 60×1 + 两笔历史各 100 = 340。
+  // 费用：买入 .10 + 卖出 .29 + 历史 3 = 3.39；预估卖出 660：.07 + .33 = .40。
+  check('10.1 混合普通与强平记录的毛收益', value(p, '#profit-gross'), 340);
+  check('10.2 已发生费用单列', value(p, '#profit-fees'), 3.39);
+  check('10.3 预估平仓费用单列', value(p, '#profit-est-fees'), 0.40);
+  check('10.4 净收益统一扣费且不重复扣普通手续费', value(p, '#profit-net'), 336.21);
+  ok('10.5 强平记录展示毛100 / 净98', /毛 \+¥100\.00 · 净 \+¥98\.00/.test(p.window.document.querySelector('#hbody').textContent));
+  p.window.document.querySelector('#export-hist').click();
+  const readDownload = blob => new Promise((resolve, reject) => {
+    const reader = new p.window.FileReader();
+    reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsText(blob);
+  });
+  const csv = await readDownload(p.window.__downloads[0]);
+  ok('10.5a 交易CSV包含毛收益与扣费净收益列', /毛收益,扣费净收益/.test(csv));
+  ok('10.5b 交易CSV强平记录扣费后为98', csv.split('\r\n').some(row => /强平/.test(row) && /100\.00,98\.00$/.test(row)));
+  p.window.document.querySelector('#export').click();
+  const holdingCsv = await readDownload(p.window.__downloads[1]);
+  ok('10.5c 持仓CSV包含全账户拆分', /"扣费净收益",336\.21/.test(holdingCsv));
+  p.window.document.querySelector('#hbody .ico.del').click();
+  check('10.6 删除历史记录后顶部净收益即时联动', value(p, '#profit-net'), 238.21);
+  restore(p);
+  check('10.7 恢复历史记录后收益还原', value(p, '#profit-net'), 336.21);
+  p.window.document.querySelector('.del-lot').click();
+  check('10.8 删除买入批次成功', snapshot(p).stocks[0].buys.length, 0);
+  const afterLotDelete = p.window.localStorage.getItem(KEY);
+  p.window.close();
+  const reload = loadPage(afterLotDelete);
+  restore(reload);
+  check('10.9 重开页面仍可恢复批次', snapshot(reload).stocks[0].buys[0].qty, '100');
+  reload.window.document.querySelector('tr.stock-row .ico.del').click();
+  reload.window.document.querySelector('#add-long').click();
+  const name = reload.window.document.querySelector('tr.stock-row input.name');
+  name.value = '删除后新增';
+  name.dispatchEvent(new reload.window.Event('input', { bubbles: true }));
+  restore(reload);
+  check('10.10 恢复删除持仓保留之后新增的数据', snapshot(reload).stocks.length, 2);
+  ok('10.11 新增名称与恢复名称均保留', snapshot(reload).stocks.some(s => s.name === '删除后新增') && snapshot(reload).stocks.some(s => s.name === '保留的持仓'));
+  reload.window.document.querySelector('#reset').click();
+  check('10.12 清空持仓成功', snapshot(reload).stocks.length, 0);
+  restore(reload);
+  check('10.13 批量恢复清空的全部持仓', snapshot(reload).stocks.length, 2);
+  reload.window.document.querySelector('#clear-hist').click();
+  check('10.14 清空交易记录成功', snapshot(reload).hist.length, 0);
+  restore(reload);
+  check('10.15 批量恢复交易记录', snapshot(reload).hist.length, 2);
+  ok('10.16 交互无运行时错误', reload.window.__errs.length === 0, reload.window.__errs.join('|'));
+  reload.window.close();
+
+  const short = Object.assign(mk('short', [[9, 40]], [[10, 100]]), { cur: '8' });
+  const sp = makePage([short], [], { ...F, minComm: 5 });
+  check('10.17 空头毛收益40×1+60×2', value(sp, '#profit-gross'), 160);
+  check('10.18 空头按逐笔最低佣金及卖出印花税计费', value(sp, '#profit-fees'), 10.5);
+  check('10.19 空头预估回买费用按最低佣金计提', value(sp, '#profit-est-fees'), 5);
+  check('10.20 空头扣费净收益', value(sp, '#profit-net'), 144.5);
+  sp.window.close();
+  for (const bad of [{ ...stock, cur: '' }, mk('long', [[10, 1]], [[11, 2]])]) {
+    const missing = makePage([bad]);
+    check('10.21 缺价或超卖时不展示完整净收益', missing.window.document.querySelector('#profit-net').textContent, '—');
+    ok('10.22 缺价或超卖有明确说明', /收益暂不完整/.test(missing.window.document.querySelector('#profit-note').textContent));
+    missing.window.close();
+  }
+  let replace = makePage([stock], archived, { ...F, minComm: 5 }, { watch: [{ id: 'w1', code: '600001', name: '观察股' }] });
+  const d = replace.window.document;
+  d.querySelector('#import-json').click();
+  d.querySelector('#impText').value = JSON.stringify({ stocks: [], hist: [], watch: [], fees: F });
+  d.querySelector('#impParse').click(); d.querySelector('#impReplace').click();
+  check('10.23 覆盖导入自动保留恢复点', snapshot(replace).recovery.length, 1);
+  const importedSeed = replace.window.localStorage.getItem(KEY);
+  replace.window.close(); replace = loadPage(importedSeed);
+  restore(replace);
+  check('10.24 恢复覆盖前持仓', snapshot(replace).stocks.length, 1);
+  check('10.25 恢复覆盖前历史', snapshot(replace).hist.length, 2);
+  check('10.26 恢复覆盖前观察池', snapshot(replace).watch.length, 1);
+  check('10.27 恢复覆盖前费率', snapshot(replace).fees.minComm, 5);
+  check('10.28 完整恢复前也保留当前数据供撤回', snapshot(replace).recovery.length, 1);
+  restore(replace);
+  check('10.29 可以撤回完整恢复', snapshot(replace).stocks.length, 0);
+  replace.window.close();
+  let watch = makePage([], [], F, { watch: [{ id: 'w1', code: '600001', name: '观察股' }] });
+  watch.window.document.querySelector('#watchBody .wdel').click();
+  check('10.29a 移除观察股成功', snapshot(watch).watch.length, 0);
+  const watchSeed = watch.window.localStorage.getItem(KEY);
+  watch.window.close(); watch = loadPage(watchSeed);
+  restore(watch);
+  check('10.29b 重开页面可恢复观察股', snapshot(watch).watch[0].code, '600001');
+  watch.window.close();
+  const limit = makePage();
+  for (let i = 0; i < 12; i++) {
+    limit.window.document.querySelector('#add-long').click();
+    limit.window.document.querySelector('#reset').click();
+  }
+  check('10.30 仅保留最近10次操作', snapshot(limit).recovery.length, 10);
+  limit.window.close();
+  const failSave = makePage([stock], [], F, {}, { storageFailure: true });
+  failSave.window.document.querySelector('#reset').click();
+  check('10.31 无法保存恢复点时取消清空', failSave.window.document.querySelectorAll('tr.stock-row').length, 1);
+  ok('10.32 保存失败显示可见警告', !failSave.window.document.querySelector('#save-warning').hidden);
+  ok('10.33 操作取消有明确提示', failSave.window.__alerts.some(s => /本次操作已取消/.test(s)));
+  failSave.window.close();
+}
+
+await profitRecoveryStep();
+persistenceStep();
 nextCase();

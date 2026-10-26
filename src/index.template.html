@@ -13,7 +13,7 @@
 
   <div class="head">
     <h1>股票收益计算器</h1>
-    <p class="sub">支持分批建仓、分批卖出、以及融券卖空（做空）：每支股票可逐笔录入多笔价格与股数，自动按加权平均法算出浮动盈亏、已实现盈亏与总收益（均已扣除佣金与印花税）。</p>
+    <p class="sub">支持分批建仓、分批卖出、以及融券卖空（做空）：按加权平均法记账。收益拆分统一展示毛收益、交易费用与扣费净收益；强制清盘的原记账收益保留价差口径。</p>
   </div>
 
   <div class="body-row">
@@ -21,7 +21,7 @@
 
   <div class="cards">
     <div class="card hero">
-      <div class="k">总收益（持仓 + 已存档，净）</div>
+      <div class="k">总收益（记账口径，强平未扣费）</div>
       <div class="v flat" id="k-total">¥0.00</div>
       <div class="x" id="k-total-sub">—</div>
     </div>
@@ -31,7 +31,7 @@
       <div class="x" id="k-float-sub">多头 ¥0.00 · 空头 ¥0.00</div>
     </div>
     <div class="card">
-      <div class="k">已实现盈亏（净，持仓 + 已存档）</div>
+      <div class="k">已实现盈亏（记账口径）</div>
       <div class="v flat" id="k-real">¥0.00</div>
       <div class="x" id="k-real-sub">持仓内 ¥0.00（已平仓 0 股）</div>
     </div>
@@ -62,6 +62,20 @@
       <div class="x" id="k-svalue-sub">暂无空头持仓</div>
     </div>
   </div>
+
+  <section class="profit-breakdown" aria-label="收益拆分">
+    <div><span>毛收益（扣费前）</span><strong id="profit-gross">—</strong></div>
+    <div><span>已发生交易费用</span><strong id="profit-fees">—</strong></div>
+    <div><span>预估剩余平仓费</span><strong id="profit-est-fees">—</strong></div>
+    <div class="profit-net"><span>扣费净收益</span><strong id="profit-net">—</strong></div>
+    <p id="profit-note">毛收益 − 已发生交易费用 − 预估剩余平仓费 = 扣费净收益。</p>
+  </section>
+  <details class="recovery-box" id="recovery-panel">
+    <summary>误删恢复 <span id="recovery-count">0</span></summary>
+    <p>保留最近 10 次删除、清空或覆盖导入操作，重开页面仍可恢复。恢复删除记录会保留之后新增的数据；恢复覆盖导入将替换当前全部数据。</p>
+    <div id="recovery-list"></div>
+  </details>
+  <p id="save-warning" class="save-warning" role="alert" hidden></p>
 
   <div class="feebar">
     <div class="ft">费率设置</div>
@@ -192,7 +206,7 @@
     <div class="hist-sum">
       <div class="hs hero">
         <div class="hs-v flat" id="h-net">¥0.00</div>
-        <div class="hs-k">已存档的已实现总收益（净）</div>
+        <div class="hs-k">已存档收益（记账口径，强平未扣费）</div>
       </div>
       <div class="hs">
         <div class="hs-v flat" id="h-totalrate">—</div>
@@ -213,6 +227,7 @@
     </div>
 
     <div class="mbox" id="monthBox" hidden>
+      <p class="profit-history-note">月度统计沿用记账口径，强制清盘未扣费；统一扣费后的结果见上方「收益拆分」及每条记录的毛 / 净收益。</p>
       <table class="mtable">
         <thead><tr>
           <th style="width:92px">月份</th>
