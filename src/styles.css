@@ -231,36 +231,45 @@
   /* ---------- 明细展开区 ---------- */
   tr.detail-row > td{padding:0;background:#f9fbfe;border-bottom:1px solid var(--line);}
   .detail{padding:14px 16px 16px;}
-  .lots{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;}
-  .lot-col{flex:1 1 660px;min-width:340px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .lots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
+  .lot-col{min-width:0;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
   .lot-col.opening{border-color:#ddd0ff;}
   .lot-col.closing{border-color:#c9daff;}
   .lot-head{
     display:flex;align-items:center;justify-content:space-between;gap:10px;
-    padding:9px 12px;border-bottom:1px solid var(--line);background:#fbfcfe;
+    padding:8px 10px;border-bottom:1px solid var(--line);background:#fbfcfe;
   }
   .lot-col.opening .lot-head{background:#faf7ff;}
   .lot-head .lt{font-size:13px;font-weight:600;color:#5b6678;}
   .lot-head .lt em{font-style:normal;color:var(--muted);font-weight:400;margin-left:6px;font-size:12px;}
-  .lot-table{min-width:0;width:100%;}
-  .lot-scroll{overflow-x:auto;}
-  .lot-scroll .lot-table{min-width:660px;}
-  .lot-time-cell{min-width:200px;}
-  .lot-table td.lot-time-cell{text-align:left;}
-  .lot-table input.trade-at{width:190px;}
-  .lot-table input.trade-order{width:58px;}
-  .trade-order-label{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px;margin-top:4px;}
-  .timeline-note{font-size:12px;margin:0 0 12px;text-align:left;}
+  .lot-table{min-width:0;width:100%;table-layout:fixed;}
+  .lot-scroll{overflow:auto;max-height:420px;scrollbar-width:thin;scrollbar-color:#c8d2e1 transparent;}
+  .lot-table .lot-time-cell{text-align:center;}
+  .edit-lot-time{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:4px 2px;cursor:pointer;white-space:nowrap;border-radius:5px;}
+  .edit-lot-time:hover,.edit-lot-time:focus-visible{background:var(--primary-soft);color:var(--primary);}
+  .edit-lot-time.missing{color:var(--warn);}
+  .lot-time-dialog{position:fixed;inset:0;margin:auto;width:min(360px,calc(100vw - 32px));max-height:90vh;overflow:auto;padding:0;border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 70px #1b243026;color:var(--txt);text-align:left;white-space:normal;background:#fff;}
+  .lot-time-dialog::backdrop{background:#1b24304d;}
+  .lot-time-heading{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);font-weight:600;}
+  .lot-time-fields{display:grid;gap:14px;padding:18px;}
+  .lot-time-fields label{display:grid;gap:7px;font-size:12px;color:var(--muted);}
+  .lot-time-fields p{margin:0;color:var(--muted);font-size:12px;}
+  .lot-table .lot-time-fields input.f{width:100%;height:36px;text-align:left;}
+  .lot-time-fields .btn{justify-self:end;}
+  .timeline-note{font-size:11.5px;margin:0 0 9px;text-align:left;white-space:normal;line-height:1.5;}
   .ledger-table{min-width:1120px;}
   .ledger-table td{white-space:nowrap;}
   .ledger-summary{cursor:pointer;font-weight:600;padding:14px 16px;}
   @media(max-width:640px){.feebar .tip{white-space:normal;min-width:0;max-width:100%;overflow-wrap:anywhere;}}
-  .lot-table th,.lot-table td{padding:6px 10px;font-size:13px;}
-  .lot-table thead th{background:#fff;border-bottom:1px solid #eef2f8;font-size:12px;}
+  .lot-table th,.lot-table td{padding:4px 6px;font-size:12px;}
+  .lot-table thead th{position:sticky;top:0;z-index:1;background:#fbfcfe;border-bottom:1px solid #eef2f8;font-size:11px;}
   .lot-table tbody tr{border-bottom:1px solid #f4f7fb;}
   .lot-table tbody tr:last-child{border-bottom:0;}
-  .lot-table tfoot td{background:#fbfcfe;font-size:12.5px;padding:8px 10px;border-top:1px solid var(--line);}
-  .lot-table input.f{padding:5px 8px;font-size:13px;border-radius:7px;}
+  .lot-table tfoot td{position:sticky;bottom:0;z-index:1;background:#fbfcfe;font-size:12px;padding:7px 6px;border-top:1px solid var(--line);}
+  .lot-table input.f{padding:4px 6px;font-size:12px;border-radius:6px;min-width:0;height:29px;}
+  .lot-table .del-lot{width:22px;height:22px;font-size:13px;}
+  .lot-table .lot-amt,.lot-table .lot-fee,.lot-table .lt-amt,.lot-table .lt-fee{font-size:11px;letter-spacing:-.2px;}
+  @media(max-width:760px){.lots{grid-template-columns:minmax(0,1fr);}.lot-scroll{max-height:360px;}}
   .lot-empty{padding:16px 12px;text-align:center;color:#b3bcc9;font-size:12.5px;}
   .lot-note{
     margin-top:12px;padding:10px 12px;background:#fff;border:1px dashed var(--line-strong);
@@ -291,11 +300,12 @@
   .hist-name{display:flex;align-items:center;}
   /* ---------- 交易计划（展开区输入卡 + 行内摘要） ---------- */
   .planbox{
-    padding:10px 12px;margin-bottom:10px;background:#fbfcfe;
+    padding:8px 10px;margin-bottom:8px;background:#fbfcfe;text-align:left;white-space:normal;
     border:1px solid var(--line);border-radius:10px;
   }
-  .planbox .ptitle{font-size:12.5px;font-weight:600;color:#5b6678;margin-bottom:8px;}
-  .planbox .ptitle .hint{font-weight:400;margin-left:6px;}
+  .planbox .ptitle{font-size:12px;font-weight:600;color:#5b6678;margin:0;cursor:pointer;}
+  .planbox[open] .ptitle{margin-bottom:10px;}
+  .planbox .ptitle .hint{display:inline;font-size:11px;font-weight:400;margin-left:6px;}
   .planbox .prow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-end;}
   .planbox .prow label{
     display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--muted);white-space:nowrap;

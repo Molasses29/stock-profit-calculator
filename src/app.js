@@ -1063,16 +1063,24 @@
   }
 
   /* ================= 持仓表：渲染 ================= */
+  function lotTimeLabel(lot) {
+    var at = tradeTime(lot.at);
+    return at ? at.slice(5, 10) : "补时间";
+  }
   function lotRowHtml(kind, lot) {
     return '<tr class="lot-row" data-lot="' + lot.id + '" data-kind="' + kind + '">' +
-      '<td class="lot-time-cell"><input class="f lot trade-at" data-k="at" type="datetime-local" step="1" aria-label="成交时间" value="' + escAttr(tradeTime(lot.at)) + '">' +
-        '<label class="trade-order-label">同刻顺序 <input class="f lot trade-order" data-k="order" type="number" min="1" step="1" aria-label="同刻顺序" value="' + escAttr(lot.order || "") + '"></label></td>' +
       '<td><input class="f lot" data-k="price" type="number" step="0.001" min="0" placeholder="0.00" value="' +
         (lot.price === undefined || lot.price === null ? "" : String(lot.price)) + '"></td>' +
       '<td><input class="f lot" data-k="qty" type="number" step="1" min="0" placeholder="0" value="' +
         (lot.qty === undefined || lot.qty === null ? "" : String(lot.qty)) + '"></td>' +
       '<td class="lot-amt mutedc">—</td>' +
       '<td class="lot-fee fee">—</td>' +
+      '<td class="lot-time-cell"><button type="button" class="edit-lot-time">' + lotTimeLabel(lot) + '</button>' +
+        '<dialog class="lot-time-dialog" aria-label="编辑成交时间">' +
+          '<div class="lot-time-heading">成交时间 <button type="button" class="ico close-lot-time" aria-label="关闭时间编辑">✕</button></div>' +
+          '<div class="lot-time-fields"><label>成交日期与时间<input class="f lot trade-at" data-k="at" type="datetime-local" step="1" aria-label="成交时间" value="' + escAttr(tradeTime(lot.at)) + '"></label>' +
+          '<label>同刻顺序 <input class="f lot trade-order" data-k="order" type="number" min="1" step="1" aria-label="同刻顺序" value="' + escAttr(lot.order || "") + '"></label>' +
+          '<p>同一时刻的成交按顺序号结算。修改即保存。</p><button type="button" class="btn primary close-lot-time">完成</button></div></dialog></td>' +
       '<td><button class="ico del-lot" title="删除这笔">✕</button></td>' +
     '</tr>';
   }
@@ -1097,20 +1105,20 @@
       '</div>' +
       '<div class="lot-scroll"><table class="lot-table">' +
         '<thead><tr>' +
-          '<th style="width:200px">成交时间<span class="hint">同一时刻按顺序号先后计算</span></th>' +
-          '<th style="width:106px">' + (kind === "buy" ? "买入价" : "卖出价") + ' ¥</th>' +
-          '<th style="width:92px">股数</th>' +
-          '<th style="width:118px">金额</th>' +
-          '<th style="width:104px">费用</th>' +
-          '<th style="width:40px"></th>' +
+          '<th style="width:20%">' + (kind === "buy" ? "买入价" : "卖出价") + ' ¥</th>' +
+          '<th style="width:16%">股数</th>' +
+          '<th style="width:24%">金额</th>' +
+          '<th style="width:15%">费用</th>' +
+          '<th style="width:17%">时间</th>' +
+          '<th style="width:8%"></th>' +
         '</tr></thead>' +
         '<tbody>' + body + '</tbody>' +
         '<tfoot><tr>' +
           '<td class="lft">合计</td>' +
-          '<td></td>' +
           '<td class="lt-qty">0</td>' +
           '<td class="lt-amt">¥0.00</td>' +
           '<td class="lt-fee">¥0.00</td>' +
+          '<td></td>' +
           '<td></td>' +
         '</tr></tfoot>' +
       '</table></div>' +
@@ -1128,8 +1136,8 @@
         (type === "num" ? ' type="number" step="0.001" min="0"' : ' type="text"') +
         ' placeholder="' + escAttr(ph) + '" value="' + escAttr(p[k]) + '">';
     }
-    return '<div class="planbox">' +
-      '<div class="ptitle">交易计划 <span class="hint">事前写清楚为什么买、止损在哪、目标在哪，复盘时才有东西可比</span></div>' +
+    return '<details class="planbox">' +
+      '<summary class="ptitle">交易计划 <span class="hint">理由、止损、目标与仓位建议 · 点此编辑</span></summary>' +
       '<div class="prow">' +
         '<label class="pwhy">入场理由' + inp("why", "如：15日低位 + 板块回暖") + '</label>' +
         '<label>策略标签' + inp("tag", "低位轮动 / 做T / …", "text") + '</label>' +
@@ -1139,7 +1147,7 @@
         '<label>单笔风险 %' + inp("riskPct", "如 1", "num") + '</label>' +
       '</div>' +
       '<div class="pnote"></div>' +
-    '</div>';
+    '</details>';
   }
 
   /* 初始风险 / 建议股数 / 当前 R 倍数：
@@ -1193,8 +1201,8 @@
   }
 
   function detailHtml(s) {
-    // 开仓腿排前面：多头买在前，空头卖在前
-    var order = isShort(s) ? ["sell", "buy"] : ["buy", "sell"];
+    // 买入始终在左，卖出始终在右；多空角色通过各栏标签表达。
+    var order = ["buy", "sell"];
     return '<tr class="detail-row" data-for="' + s.id + '"><td colspan="8"><div class="detail">' +
       planBoxHtml(s) +
       '<p class="timeline-note"></p>' +
@@ -1422,6 +1430,10 @@
         var lot = null;
         for (var i = 0; i < lots.length; i++) { if (lots[i].id === lr.dataset.lot) { lot = lots[i]; break; } }
         if (!lot) return;
+        var timeButton = lr.querySelector(".edit-lot-time");
+        timeButton.textContent = lotTimeLabel(lot);
+        timeButton.classList.toggle("missing", !tradeTime(lot.at));
+        timeButton.title = (tradeTime(lot.at) || "未填写成交时间").replace("T", " ") + " · 同刻顺序 " + (lot.order || "未填") + "，点击编辑";
         var p = num(lot.price), q = num(lot.qty);
         var ok = isFinite(p) && p > 0 && isFinite(q) && q > 0;
         var a = ok ? p * q : NaN;
@@ -2026,6 +2038,13 @@
   });
 
   tbody.addEventListener("click", function (e) {
+    var timeButton = e.target.closest(".edit-lot-time");
+    if (timeButton) {
+      var timeDialog = timeButton.closest("td").querySelector("dialog");
+      timeDialog.showModal(); timeDialog.querySelector(".trade-at").focus(); return;
+    }
+    var timeClose = e.target.closest(".close-lot-time");
+    if (timeClose) { timeClose.closest("dialog").close(); return; }
     var dbtn = e.target.closest("button.dir");
     if (dbtn) { e.stopPropagation(); toggleDir(dbtn.closest("tr.stock-row").dataset.id); return; }
 
@@ -2126,6 +2145,8 @@
   tbody.addEventListener("keydown", function (e) {
     if (e.key !== "Enter") return;
     var el = e.target;
+    var timeDialog = el.closest(".lot-time-dialog");
+    if (timeDialog) { e.preventDefault(); timeDialog.close(); return; }
     if (!el.classList || !el.classList.contains("f")) return;
     e.preventDefault();
     if (el.classList.contains("lot")) {
