@@ -950,6 +950,40 @@ async function timelineStep() {
   ok('11.38 无效日历日期不会静默改日期', /成交时间无效/.test(badDate.window.document.querySelector('.timeline-note').textContent)); badDate.window.close();
 }
 
+function layoutStep() {
+  section('12. 多空明细方向切换');
+  const stock = Object.assign(mk('long', [[10, 100]], [[11, 50]]), { expanded: true });
+  const dom = loadPage(JSON.stringify({ stocks: [stock], hist: [], fees: F,
+    settings: { auto: false, alert: { plan: false } } }));
+  const w = dom.window, d = w.document;
+  const columns = () => [...d.querySelectorAll('tr.detail-row .lot-col')];
+  check('12.1 多头左买右卖', columns().map(c => c.dataset.kind).join(','), 'buy,sell');
+  ok('12.2 多头左侧建仓、右侧平仓', columns()[0].classList.contains('opening') && columns()[1].classList.contains('closing'));
+  d.querySelector('tr.stock-row button.dir').click();
+  check('12.3 切换空头后左卖右买', columns().map(c => c.dataset.kind).join(','), 'sell,buy');
+  ok('12.4 空头左侧开仓、右侧平仓', columns()[0].classList.contains('opening') && columns()[1].classList.contains('closing'));
+  check('12.5 空头开仓栏保留原卖出价格', columns()[0].querySelector('[data-k="price"]').value, '11');
+  check('12.6 空头平仓栏保留原买入价格', columns()[1].querySelector('[data-k="price"]').value, '10');
+  d.querySelector('tr.stock-row button.dir').click();
+  check('12.7 切回多头恢复左买右卖', columns().map(c => c.dataset.kind).join(','), 'buy,sell');
+  const saved = JSON.parse(w.localStorage.getItem(KEY)).stocks[0];
+  ok('12.8 切换方向不修改已录交易', saved.buys[0].price === '10' && saved.sells[0].price === '11');
+  ok('12.9 切换无运行时错误', w.__errs.length === 0, w.__errs.join('|'));
+  dom.window.close();
+  const shortPage = loadPage(JSON.stringify({ stocks: [{ ...stock, dir: 'short' }], hist: [], fees: F,
+    settings: { auto: false, alert: { plan: false } } }));
+  const sd = shortPage.window.document;
+  const shortColumns = () => [...sd.querySelectorAll('tr.detail-row .lot-col')];
+  check('12.10 重新打开空头时左卖右买', shortColumns().map(c => c.dataset.kind).join(','), 'sell,buy');
+  shortColumns()[0].querySelector('.add-lot').click();
+  shortColumns()[1].querySelector('.add-lot').click();
+  const shortSaved = JSON.parse(shortPage.window.localStorage.getItem(KEY)).stocks[0];
+  check('12.11 左侧新增到卖出开仓', shortSaved.sells.length, 2);
+  check('12.12 右侧新增到买入平仓', shortSaved.buys.length, 2);
+  shortPage.window.close();
+}
+
+layoutStep();
 await timelineStep();
 await profitRecoveryStep();
 persistenceStep();

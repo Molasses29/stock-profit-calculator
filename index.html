@@ -668,7 +668,7 @@
   .ico.done{color:#0f6e56;}
   .ico.done:hover{background:#e7f6f1;}
 </style>
-  <!-- build: 2026-10-27 11:16:49 UTC+8 · 5fd58c19 -->
+  <!-- build: 2026-10-30 17:41:55 UTC+8 · 1bd24696 -->
 </head>
 <body>
 <div class="wrap">
@@ -2392,8 +2392,8 @@
   }
 
   function detailHtml(s) {
-    // 买入始终在左，卖出始终在右；多空角色通过各栏标签表达。
-    var order = ["buy", "sell"];
+    // 建仓在左、平仓在右：多头先买后卖，空头先卖后买。
+    var order = isShort(s) ? ["sell", "buy"] : ["buy", "sell"];
     return '<tr class="detail-row" data-for="' + s.id + '"><td colspan="8"><div class="detail">' +
       planBoxHtml(s) +
       '<p class="timeline-note"></p>' +

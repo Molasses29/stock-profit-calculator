@@ -1201,8 +1201,8 @@
   }
 
   function detailHtml(s) {
-    // 买入始终在左，卖出始终在右；多空角色通过各栏标签表达。
-    var order = ["buy", "sell"];
+    // 建仓在左、平仓在右：多头先买后卖，空头先卖后买。
+    var order = isShort(s) ? ["sell", "buy"] : ["buy", "sell"];
     return '<tr class="detail-row" data-for="' + s.id + '"><td colspan="8"><div class="detail">' +
       planBoxHtml(s) +
       '<p class="timeline-note"></p>' +
